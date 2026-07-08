@@ -20,11 +20,21 @@ function run(cmd) {
   execSync(cmd, { stdio: 'inherit' });
 }
 
+// gh CLIをインストール直後などPATHがまだ更新されていない環境向けのフォールバック。
+function resolveGh() {
+  try { execSync('gh --version', { stdio: 'ignore' }); return 'gh'; } catch { /* fallthrough */ }
+  const fallback = 'C:\\Program Files\\GitHub CLI\\gh.exe';
+  if (fs.existsSync(fallback)) return `"${fallback}"`;
+  console.error('gh CLIが見つかりません。インストール後は新しいターミナルを開き直してください。');
+  process.exit(1);
+}
+
 function main() {
   const version = pkg.version;
   const tag = `v${version}`;
   const exeName = `WordChain-${version}-portable.exe`;
   const exePath = path.join(__dirname, '..', 'dist', exeName);
+  const gh = resolveGh();
 
   console.log(`=== ワードチェイン ${tag} をビルドします ===`);
   run('npm run dist');
@@ -35,7 +45,7 @@ function main() {
   }
 
   console.log(`\n=== GitHub Release ${tag} を作成します ===`);
-  run(`gh release create ${tag} "${exePath}" --title "${tag}" --generate-notes`);
+  run(`${gh} release create ${tag} "${exePath}" --title "${tag}" --generate-notes`);
 
   console.log(`\n完了しました: ${tag}`);
   console.log('公開されたリリースはアプリの自動更新チェックから参照されます。');
