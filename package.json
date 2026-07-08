@@ -1,0 +1,55 @@
+{
+  "name": "word-chain",
+  "version": "1.1.3",
+  "description": "ワードチェイン - 8x8盤面で単語をつなげて文字数を競う対戦ゲーム",
+  "main": "main.js",
+  "author": "yasshi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Yasshi302/word_chain.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build-dict": "node tools/build-dict.js",
+    "test": "node tools/test-game.js && node tools/test-dict.js && node tools/test-cpu.js && node tools/test-updater.js",
+    "dist": "electron-builder --win portable",
+    "release": "node tools/release.js"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^3.0.1"
+  },
+  "dependencies": {
+    "peerjs": "^1.5.4"
+  },
+  "build": {
+    "appId": "com.yasshi.wordchain",
+    "productName": "ワードチェイン",
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "WordChain-${version}-portable.${ext}"
+    },
+    "extraResources": [
+      "uninstall.bat"
+    ],
+    "files": [
+      "main.js",
+      "preload.js",
+      "dict-store.js",
+      "updater.js",
+      "tools/updater-util.js",
+      "renderer/**",
+      "data/**",
+      "build/icon.png",
+      "node_modules/peerjs/dist/peerjs.min.js"
+    ]
+  }
+}

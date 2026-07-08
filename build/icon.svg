@@ -1,0 +1,49 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="70%">
+      <stop offset="0%" stop-color="#1c2436"/>
+      <stop offset="60%" stop-color="#141a26"/>
+      <stop offset="100%" stop-color="#0d111a"/>
+    </radialGradient>
+    <radialGradient id="starGold" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff3cf"/>
+      <stop offset="45%" stop-color="#ffe08a"/>
+      <stop offset="100%" stop-color="#e6b84c" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="starBlue" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#eaf3ff"/>
+      <stop offset="45%" stop-color="#8fc2ff"/>
+      <stop offset="100%" stop-color="#5db1ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#bg)"/>
+  <rect x="17" y="17" width="478" height="478" rx="107" fill="none" stroke="#39466144" stroke-width="2"/>
+
+  <!-- 散らばる小さな星 -->
+  <g fill="#aebdd8">
+    <circle cx="96" cy="120" r="3"/><circle cx="150" cy="96" r="2"/><circle cx="410" cy="110" r="2.5"/>
+    <circle cx="440" cy="180" r="2"/><circle cx="86" cy="300" r="2.5"/><circle cx="120" cy="400" r="2"/>
+    <circle cx="420" cy="380" r="3"/><circle cx="380" cy="430" r="2"/><circle cx="256" cy="440" r="2.5"/>
+    <circle cx="70" cy="220" r="1.6"/><circle cx="452" cy="280" r="1.6"/><circle cx="300" cy="86" r="1.6"/>
+  </g>
+
+  <!-- W座をつなぐ線 -->
+  <polyline points="150,180 210,352 256,244 302,352 362,180"
+            fill="none" stroke="#5db1ff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/>
+
+  <!-- W座の星 (端と谷は青、中央の頂点は金) -->
+  <g>
+    <circle cx="150" cy="180" r="34" fill="url(#starBlue)"/>
+    <circle cx="210" cy="352" r="30" fill="url(#starBlue)"/>
+    <circle cx="256" cy="244" r="46" fill="url(#starGold)"/>
+    <circle cx="302" cy="352" r="30" fill="url(#starBlue)"/>
+    <circle cx="362" cy="180" r="34" fill="url(#starBlue)"/>
+
+    <circle cx="150" cy="180" r="9" fill="#f2f7ff"/>
+    <circle cx="210" cy="352" r="8" fill="#f2f7ff"/>
+    <circle cx="256" cy="244" r="12" fill="#fff6dd"/>
+    <circle cx="302" cy="352" r="8" fill="#f2f7ff"/>
+    <circle cx="362" cy="180" r="9" fill="#f2f7ff"/>
+  </g>
+</svg>

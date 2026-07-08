@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src https://0.peerjs.com wss://0.peerjs.com stun: turn: turns:; img-src 'self' data:; base-uri 'none'; object-src 'none'; form-action 'none'">
+  <title>ワードチェイン</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ホーム -->
+  <section id="screen-home" class="screen active">
+    <div class="center-box">
+      <h1 class="logo">ワードチェイン</h1>
+      <p class="tagline">8×8〜15×15の盤面で単語をつなげ、最大4人で文字数を競う対戦ゲーム</p>
+      <div class="menu-buttons">
+        <button id="btn-goto-create" class="btn primary big">部屋を作る (ホスト)</button>
+        <button id="btn-goto-join" class="btn big">部屋に入る (ゲスト)</button>
+        <button id="btn-goto-offline" class="btn big">オフライン対戦 (交代プレイ)</button>
+        <button id="btn-goto-settings" class="btn big">設定 (辞書の編集)</button>
+      </div>
+      <p id="dict-status" class="muted">辞書を読み込み中...</p>
+      <p id="home-record" class="record-line"></p>
+    </div>
+  </section>
+
+  <!-- 部屋作成 -->
+  <section id="screen-create" class="screen">
+    <div class="center-box">
+      <h2>部屋を作る</h2>
+      <p class="muted">盤面サイズと入力時間は、次のロビー画面で決めます。</p>
+      <label class="field">
+        <span>あなたの名前</span>
+        <input id="create-name" type="text" maxlength="12" autocomplete="off" spellcheck="false" placeholder="プレーヤー1">
+      </label>
+      <label class="field">
+        <span>部屋のパスワード (4文字以上)</span>
+        <input id="create-password" type="password" maxlength="64" autocomplete="off">
+      </label>
+      <p id="create-error" class="error"></p>
+      <div class="menu-buttons">
+        <button id="btn-create" class="btn primary">部屋を作成してロビーへ</button>
+        <button id="btn-create-back" class="btn">戻る</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 入室 -->
+  <section id="screen-join" class="screen">
+    <div class="center-box">
+      <h2>部屋に入る</h2>
+      <label class="field">
+        <span>あなたの名前</span>
+        <input id="join-name" type="text" maxlength="12" autocomplete="off" spellcheck="false" placeholder="プレーヤー2">
+      </label>
+      <label class="field">
+        <span>部屋コード (6文字)</span>
+        <input id="join-code" type="text" maxlength="6" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="field">
+        <span>パスワード</span>
+        <input id="join-password" type="password" maxlength="64" autocomplete="off">
+      </label>
+      <p id="join-error" class="error"></p>
+      <div class="menu-buttons">
+        <button id="btn-join" class="btn primary">入室する</button>
+        <button id="btn-join-back" class="btn">戻る</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ロビー -->
+  <section id="screen-lobby" class="screen">
+    <div class="center-box lobby-box">
+      <h2 id="lobby-title">ロビー</h2>
+
+      <div id="lobby-code-wrap">
+        <p class="muted">この部屋コードとパスワードを相手に伝えてください（最大3人まで参加できます）</p>
+        <div class="room-code" id="lobby-code"></div>
+        <button id="btn-copy-code" class="btn small">コードをコピー</button>
+      </div>
+
+      <div class="lobby-players">
+        <p class="panel-caption">参加者</p>
+        <ul id="lobby-roster"></ul>
+      </div>
+
+      <!-- ホスト用: 開始設定 -->
+      <div id="lobby-host-controls" class="hidden">
+        <div class="field">
+          <span>盤面サイズ: <b id="size-label">8 × 8</b></span>
+          <input id="size-range" type="range" min="8" max="15" step="1" value="8">
+        </div>
+        <label class="field">
+          <span>入力時間</span>
+          <select id="lobby-time">
+            <option value="10">10秒</option>
+            <option value="30" selected>30秒</option>
+            <option value="60">1分</option>
+            <option value="180">3分</option>
+            <option value="300">5分</option>
+            <option value="0">無制限</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>初期文字の配置</span>
+          <select id="lobby-placement">
+            <option value="default" selected>デフォルト (中央)</option>
+            <option value="random">ランダム</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>初期文字の数</span>
+          <select id="lobby-initial-count"></select>
+        </label>
+        <label class="field checkbox-field">
+          <input id="lobby-obstacles" type="checkbox">
+          <span>お邪魔マスを配置する</span>
+        </label>
+        <label id="lobby-obstacle-count-field" class="field hidden">
+          <span>お邪魔マスの数</span>
+          <select id="lobby-obstacle-count">
+            <option value="1">1マス</option>
+            <option value="2">2マス</option>
+            <option value="3">3マス</option>
+            <option value="4" selected>4マス</option>
+            <option value="5">5マス</option>
+            <option value="6">6マス</option>
+            <option value="7">7マス</option>
+            <option value="8">8マス</option>
+            <option value="9">9マス</option>
+            <option value="10">10マス</option>
+          </select>
+        </label>
+        <p id="lobby-hint" class="muted"></p>
+      </div>
+
+      <p id="lobby-status" class="status-line"></p>
+
+      <div class="menu-buttons">
+        <button id="btn-lobby-start" class="btn primary hidden">この設定でゲーム開始</button>
+        <button id="btn-lobby-back" class="btn">退出する</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- オフライン対戦設定 -->
+  <section id="screen-offline" class="screen">
+    <div class="center-box">
+      <h2>オフライン対戦</h2>
+      <p class="muted">1台のPCで、2〜4人が交代で操作します。CPUと対戦することもできます。</p>
+      <label class="field">
+        <span>対戦相手</span>
+        <select id="offline-opponent">
+          <option value="human" selected>人間 (交代プレイ)</option>
+          <option value="cpu">CPU</option>
+        </select>
+      </label>
+      <label id="offline-cpu-level-field" class="field hidden">
+        <span>CPUの強さ</span>
+        <select id="offline-cpu-level">
+          <option value="weak">弱い</option>
+          <option value="normal" selected>普通</option>
+          <option value="strong">強い</option>
+          <option value="strongest">最強</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>人数</span>
+        <select id="offline-count">
+          <option value="2" selected>2人</option>
+          <option value="3">3人</option>
+          <option value="4">4人</option>
+        </select>
+      </label>
+      <div class="field">
+        <span>盤面サイズ: <b id="offline-size-label">8 × 8</b></span>
+        <input id="offline-size-range" type="range" min="8" max="15" step="1" value="8">
+      </div>
+      <label class="field">
+        <span>入力時間</span>
+        <select id="offline-time">
+          <option value="10">10秒</option>
+          <option value="30" selected>30秒</option>
+          <option value="60">1分</option>
+          <option value="180">3分</option>
+          <option value="300">5分</option>
+          <option value="0">無制限</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>初期文字の配置</span>
+        <select id="offline-placement">
+          <option value="default" selected>デフォルト (中央)</option>
+          <option value="random">ランダム</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>初期文字の数</span>
+        <select id="offline-initial-count"></select>
+      </label>
+      <label class="field checkbox-field">
+        <input id="offline-obstacles" type="checkbox">
+        <span>お邪魔マスを配置する</span>
+      </label>
+      <label id="offline-obstacle-count-field" class="field hidden">
+        <span>お邪魔マスの数</span>
+        <select id="offline-obstacle-count">
+          <option value="1">1マス</option>
+          <option value="2">2マス</option>
+          <option value="3">3マス</option>
+          <option value="4" selected>4マス</option>
+          <option value="5">5マス</option>
+          <option value="6">6マス</option>
+          <option value="7">7マス</option>
+          <option value="8">8マス</option>
+          <option value="9">9マス</option>
+          <option value="10">10マス</option>
+        </select>
+      </label>
+      <div class="menu-buttons">
+        <button id="btn-offline-start" class="btn primary">対戦を始める</button>
+        <button id="btn-offline-back" class="btn">戻る</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 設定 (辞書の編集・音量) -->
+  <section id="screen-settings" class="screen">
+    <div class="center-box settings-box">
+      <h2>設定</h2>
+
+      <div class="settings-section">
+        <p class="panel-caption">音量</p>
+        <div class="field">
+          <span>BGM: <b id="vol-bgm-label">50%</b></span>
+          <input id="vol-bgm" type="range" min="0" max="100" step="1" value="50">
+        </div>
+        <div class="field">
+          <span>効果音: <b id="vol-sfx-label">70%</b></span>
+          <input id="vol-sfx" type="range" min="0" max="100" step="1" value="70">
+        </div>
+      </div>
+
+      <p class="panel-caption">辞書の編集</p>
+      <p class="muted">対戦中に承認して追加した単語を編集できます。同梱の基本辞書 (約14万語) は変更されません。</p>
+      <p id="settings-meta" class="muted"></p>
+      <div class="field">
+        <span>単語を追加 (ひらがな2〜15文字)</span>
+        <div class="add-row">
+          <input id="settings-add-input" type="text" maxlength="45" autocomplete="off" spellcheck="false" placeholder="ローマ字またはひらがなで入力">
+          <button id="btn-settings-add" class="btn small">追加</button>
+        </div>
+      </div>
+      <p id="settings-error" class="error"></p>
+      <div class="field">
+        <span>追加済みの単語を検索</span>
+        <input id="settings-filter" type="text" autocomplete="off" spellcheck="false" placeholder="絞り込み">
+      </div>
+      <ul id="settings-word-list"></ul>
+      <div class="menu-buttons">
+        <button id="btn-rollback" class="btn warn hidden">前のバージョンに戻す</button>
+        <button id="btn-settings-back" class="btn">戻る</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ゲーム -->
+  <section id="screen-game" class="screen">
+    <div class="game-layout">
+      <div class="board-side">
+        <div id="board"></div>
+        <p id="game-status" class="status-line"></p>
+      </div>
+      <div class="panel-side">
+        <div id="scores" class="scores"></div>
+        <div id="record-line" class="record-line"></div>
+        <div class="timer-wrap">
+          <div id="turn-indicator"></div>
+          <div class="timer-bar-outer"><div id="timer-bar"></div></div>
+          <div id="timer-text"></div>
+        </div>
+        <div id="dir-panel" class="hidden">
+          <p class="panel-caption">単語を作る方向を選んでください</p>
+          <div class="dir-grid">
+            <button class="dir-btn" data-dir="0">↖</button>
+            <button class="dir-btn" data-dir="1">↑</button>
+            <button class="dir-btn" data-dir="2">↗</button>
+            <button class="dir-btn" data-dir="3">←</button>
+            <div class="dir-center" id="dir-center"></div>
+            <button class="dir-btn" data-dir="4">→</button>
+            <button class="dir-btn" data-dir="5">↙</button>
+            <button class="dir-btn" data-dir="6">↓</button>
+            <button class="dir-btn" data-dir="7">↘</button>
+          </div>
+        </div>
+        <div class="game-buttons">
+          <button id="btn-pass" class="btn warn" disabled>パスする</button>
+          <button id="btn-leave" class="btn">退出</button>
+        </div>
+        <div class="history-wrap">
+          <p class="panel-caption">単語の履歴</p>
+          <ul id="history"></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 単語入力モーダル -->
+  <div id="modal-word" class="modal hidden">
+    <div class="modal-box">
+      <h3>単語を入力</h3>
+      <div id="word-pattern" class="pattern"></div>
+      <p id="word-hint" class="muted"></p>
+      <input id="word-input" type="text" maxlength="45" autocomplete="off" spellcheck="false" placeholder="ローマ字またはひらがなで入力">
+      <p id="word-error" class="error"></p>
+      <div id="word-propose" class="hidden">
+        <p id="word-propose-text"></p>
+        <div class="menu-buttons">
+          <button id="btn-propose-yes" class="btn primary">承認を求める</button>
+          <button id="btn-propose-no" class="btn">入力し直す</button>
+        </div>
+      </div>
+      <div id="word-buttons" class="menu-buttons">
+        <button id="btn-word-ok" class="btn primary">決定</button>
+        <button id="btn-word-cancel" class="btn">方向を選び直す</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 承認モーダル -->
+  <div id="modal-approve" class="modal hidden">
+    <div class="modal-box">
+      <h3>単語の承認</h3>
+      <p id="approve-caption"></p>
+      <div id="approve-word" class="approve-word"></div>
+      <p class="muted">全員が承認すると成立し、単語リストに追加されます。</p>
+      <div class="menu-buttons">
+        <button id="btn-approve-yes" class="btn primary">承認する</button>
+        <button id="btn-approve-no" class="btn warn">拒否する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ゲスト用: 開始前の設定確認モーダル -->
+  <div id="modal-confirm" class="modal hidden">
+    <div class="modal-box">
+      <h3>ゲーム設定の確認</h3>
+      <p class="muted">ホストが次の設定でゲームを始めようとしています。</p>
+      <div id="confirm-detail" class="confirm-detail"></div>
+      <div class="menu-buttons">
+        <button id="btn-confirm-ok" class="btn primary">確認して開始を待つ</button>
+        <button id="btn-confirm-leave" class="btn warn">退出する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ホスト用: 途中退出の対応ダイアログ -->
+  <div id="modal-disconnect" class="modal hidden">
+    <div class="modal-box">
+      <h3>プレーヤーが切断されました</h3>
+      <p id="disconnect-text" class="muted"></p>
+      <div class="menu-buttons">
+        <button id="btn-disc-wait" class="btn primary">プレーヤーを待つ</button>
+        <button id="btn-disc-continue" class="btn">残りで継続する</button>
+        <button id="btn-disc-end" class="btn warn">ゲームを終了する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 結果モーダル -->
+  <div id="modal-result" class="modal hidden">
+    <div class="modal-box">
+      <h3 id="result-title"></h3>
+      <div id="result-detail" class="result-detail"></div>
+      <p id="result-record" class="record-line"></p>
+      <p id="rematch-status" class="muted"></p>
+      <div class="menu-buttons">
+        <button id="btn-rematch" class="btn primary">再戦する</button>
+        <button id="btn-result-exit" class="btn">退出する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 汎用オーバーレイ (待機など) -->
+  <div id="modal-overlay" class="modal hidden">
+    <div class="modal-box">
+      <p id="overlay-text"></p>
+    </div>
+  </div>
+
+  <!-- 通知モーダル -->
+  <div id="modal-notice" class="modal hidden">
+    <div class="modal-box">
+      <p id="notice-text"></p>
+      <div class="menu-buttons">
+        <button id="btn-notice-ok" class="btn primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- チャット (オンライン対戦) -->
+  <button id="chat-bubble" class="chat-bubble hidden" aria-label="チャットを開く" title="チャット">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
+            fill="currentColor"/>
+      <circle cx="8" cy="10.5" r="1.3" fill="#1d2330"/>
+      <circle cx="12" cy="10.5" r="1.3" fill="#1d2330"/>
+      <circle cx="16" cy="10.5" r="1.3" fill="#1d2330"/>
+    </svg>
+    <span id="chat-badge" class="chat-badge hidden"></span>
+  </button>
+
+  <div id="chat-panel" class="chat-panel hidden">
+    <div class="chat-head">
+      <span>チャット</span>
+      <button id="chat-close" class="chat-close" aria-label="閉じる">×</button>
+    </div>
+    <ul id="chat-log"></ul>
+    <div class="chat-input-row">
+      <input id="chat-input" type="text" maxlength="200" autocomplete="off" placeholder="メッセージを入力…">
+      <button id="chat-send" class="btn small">送信</button>
+    </div>
+  </div>
+
+  <div id="chat-toast" class="chat-toast hidden"></div>
+
+  <!-- 自動更新の状態表示 (画面下部に固定) -->
+  <div id="update-banner" class="update-banner hidden">
+    <span id="update-banner-text"></span>
+    <div class="update-banner-track"><div id="update-banner-bar" class="update-banner-bar"></div></div>
+  </div>
+
+  <script src="background.js"></script>
+  <script src="audio.js"></script>
+  <script src="../node_modules/peerjs/dist/peerjs.min.js"></script>
+  <script src="game.js"></script>
+  <script src="net.js"></script>
+  <script src="cpu.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
