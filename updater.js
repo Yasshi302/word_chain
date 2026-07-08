@@ -126,7 +126,9 @@ function buildSwapScript(exePath, bakPath, newExePath) {
     `$bakPath = "${bakPath}"`,
     `$newPath = "${newExePath}"`,
     '$ok = $false',
-    'for ($i = 0; $i -lt 30; $i++) {',
+    // 実機検証で、旧exeプロセスがファイルロックを解放するまで15秒(30回)では
+    // 足りないケースがあったため、120回(約60秒)まで待つ。
+    'for ($i = 0; $i -lt 120; $i++) {',
     '  try {',
     '    if (Test-Path $bakPath) { Remove-Item -Force $bakPath -ErrorAction Stop }',
     '    Rename-Item -Path $exePath -NewName (Split-Path $bakPath -Leaf) -ErrorAction Stop',
@@ -158,7 +160,9 @@ function buildRollbackScript(exePath, bakPath) {
     `$bakPath = "${bakPath}"`,
     `$tmpPath = "${tmpPath}"`,
     '$ok = $false',
-    'for ($i = 0; $i -lt 30; $i++) {',
+    // 実機検証で、旧exeプロセスがファイルロックを解放するまで15秒(30回)では
+    // 足りないケースがあったため、120回(約60秒)まで待つ。
+    'for ($i = 0; $i -lt 120; $i++) {',
     '  try {',
     '    Rename-Item -Path $exePath -NewName (Split-Path $tmpPath -Leaf) -ErrorAction Stop',
     '    $ok = $true',
