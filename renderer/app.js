@@ -25,7 +25,8 @@
   let placementMode = 'default'; // 'default' | 'random' (初期文字の配置)
   let initialCount = 4;           // 初期文字の数
   let obstaclesOn = false;        // お邪魔マスの有無
-  let obstacleCount = 4;          // お邪魔マスの数 (1〜10)
+  let obstacleCount = 4;          // お邪魔マスの数 (1〜全マス数の20%)
+  let scoringMode = 'normal';     // 'normal' (通常) | 'territory' (陣取り)
   let savedName = '';             // アプリ終了まで保持する自分の名前 (オンライン)
   let selection = { r: null, c: null, dir: null };
   let pendingMove = null;
@@ -389,6 +390,7 @@
     game = WordChain.newGame({
       size: opts.size, players: opts.playerIds, first: opts.first, timeLimit: opts.timeLimit,
       initialCells: opts.initialCells, initialLetters: opts.initialLetters, obstacleCells: opts.obstacleCells,
+      territoryMode: opts.scoringMode === 'territory',
     });
     pendingMove = null; localProposal = null; approval = null;
     selection = { r: null, c: null, dir: null };
@@ -648,7 +650,8 @@
       const row = document.createElement('div');
       row.className = 'rank-row' + (wins.includes(p.id) ? ' winner' : '');
       const you = (mode !== 'offline' && p.id === myId) ? ' (あなた)' : '';
-      row.innerHTML = `<span class="rank-pos">${pos}位</span><span class="rank-name ${colorOf(p.id)}">${escapeHtml(p.name + you)}</span><span class="rank-score">${game.scores[p.id]} 文字</span>`;
+      const unit = game.territoryMode ? '点' : '文字';
+      row.innerHTML = `<span class="rank-pos">${pos}位</span><span class="rank-name ${colorOf(p.id)}">${escapeHtml(p.name + you)}</span><span class="rank-score">${game.scores[p.id]} ${unit}</span>`;
       box.appendChild(row);
     });
     $('result-record').textContent = recordText();
@@ -686,6 +689,7 @@
     initialCount = Number($('offline-initial-count').value);
     obstaclesOn = $('offline-obstacles').checked;
     obstacleCount = Number($('offline-obstacle-count').value);
+    scoringMode = $('offline-scoring-mode').value === 'territory' ? 'territory' : 'normal';
     const opponent = $('offline-opponent').value;
     const cpuLevel = $('offline-cpu-level').value;
     roster = [];
@@ -713,6 +717,7 @@
     beginLocalGame({
       size: boardSize, initialCells, initialLetters, obstacleCells,
       first: randInt(roster.length), timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id),
+      scoringMode,
     });
   }
   function randInt(max) { const b = new Uint32Array(1); crypto.getRandomValues(b); return b[0] % max; }
@@ -947,6 +952,7 @@
       t: 'resync', size: game.size, board: game.board, owner: game.owner, blocked: game.blocked, initialCells: game.initialCells,
       scores: game.scores, active: game.active, players: publicRoster(), turnIdx: game.turnIdx, chain: game.chain,
       used: [...game.usedWords], history: game.history, timeLimit: game.timeLimit, over: game.over, remainingMs: timer.remaining,
+      territoryMode: game.territoryMode,
     };
   }
   function hostOnMessage(connId, m) {
@@ -1044,11 +1050,12 @@
     initialCount = Number($('lobby-initial-count').value);
     obstaclesOn = $('lobby-obstacles').checked;
     obstacleCount = Number($('lobby-obstacle-count').value);
+    scoringMode = $('lobby-scoring-mode').value === 'territory' ? 'territory' : 'normal';
     phase = 'confirm';
     confirmAcks = new Set([myId]);
     Net.broadcast({
       t: 'config', size: boardSize, timeLimit: timeLimitSec, players: publicRoster(),
-      placementMode, initialCount, obstacles: obstaclesOn, obstacleCount,
+      placementMode, initialCount, obstacles: obstaclesOn, obstacleCount, scoringMode,
     });
     $('lobby-status').textContent = 'ゲストの確認を待っています...';
     $('btn-lobby-start').disabled = true;
@@ -1065,11 +1072,11 @@
       const obstacleCells = obstaclesOn ? WordChain.generateObstacleCells(boardSize, initialCells, obstacleCount) : [];
       Net.broadcast({
         t: 'begin', size: boardSize, initialCells, initialLetters, obstacleCells,
-        timeLimit: timeLimitSec, players: publicRoster(), first,
+        timeLimit: timeLimitSec, players: publicRoster(), first, scoringMode,
       });
       beginLocalGame({
         size: boardSize, initialCells, initialLetters, obstacleCells,
-        first, timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id),
+        first, timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id), scoringMode,
       });
     }
   }
@@ -1114,7 +1121,7 @@
         roster = m.players.map((p) => ({ ...p, connId: null, connected: true }));
         beginLocalGame({
           size: m.size, initialCells: m.initialCells, initialLetters: m.initialLetters, obstacleCells: m.obstacleCells,
-          first: m.first, timeLimit: m.timeLimit, playerIds: m.players.map((p) => p.id),
+          first: m.first, timeLimit: m.timeLimit, playerIds: m.players.map((p) => p.id), scoringMode: m.scoringMode,
         });
         break;
       case 'turn': guestOnTurn(m); break;
@@ -1153,6 +1160,7 @@
       `<div class="row"><span>初期文字の配置</span><span>${m.placementMode === 'random' ? 'ランダム' : 'デフォルト (中央)'}</span></div>` +
       `<div class="row"><span>初期文字の数</span><span>${m.initialCount} マス</span></div>` +
       `<div class="row"><span>お邪魔マス</span><span>${m.obstacles ? `あり (${m.obstacleCount}マス)` : 'なし'}</span></div>` +
+      `<div class="row"><span>対戦モード</span><span>${m.scoringMode === 'territory' ? '陣取りモード' : '通常モード'}</span></div>` +
       `<div class="row"><span>参加者 (${m.players.length}人)</span><span>${escapeHtml(names)}</span></div>`;
     showModal('modal-confirm');
   }
@@ -1221,6 +1229,7 @@
     game.board = m.board; game.owner = m.owner; game.blocked = m.blocked; game.scores = m.scores;
     game.active = m.active; game.turnIdx = m.turnIdx; game.chain = m.chain;
     game.usedWords = new Set(m.used); game.history = m.history; game.over = m.over;
+    game.territoryMode = !!m.territoryMode;
     phase = 'game'; hideAllModals();
     buildBoardDOM();
     $('history').innerHTML = '';
@@ -1374,8 +1383,25 @@
     if (converted !== raw) el.value = converted;
   }
 
-  function updateSizeLabel() { const v = $('size-range').value; $('size-label').textContent = `${v} × ${v}`; }
-  function updateOfflineSizeLabel() { const v = $('offline-size-range').value; $('offline-size-label').textContent = `${v} × ${v}`; }
+  // お邪魔マスの数(手入力)は盤面サイズが変わるたびに上限(全マスの20%)を更新し、
+  // 現在値がそれを超えていれば切り詰める。
+  function updateObstacleCountMax(sizeInputId, countInputId, maxLabelId) {
+    const size = WordChain.clampSize($(sizeInputId).value);
+    const cap = WordChain.maxObstacleCount(size);
+    const input = $(countInputId);
+    input.max = String(cap);
+    if (Number(input.value) > cap) input.value = String(cap);
+    if (Number(input.value) < 1 || !input.value) input.value = '1';
+    $(maxLabelId).textContent = String(cap);
+  }
+  function updateSizeLabel() {
+    const v = $('size-range').value; $('size-label').textContent = `${v} × ${v}`;
+    updateObstacleCountMax('size-range', 'lobby-obstacle-count', 'lobby-obstacle-count-max');
+  }
+  function updateOfflineSizeLabel() {
+    const v = $('offline-size-range').value; $('offline-size-label').textContent = `${v} × ${v}`;
+    updateObstacleCountMax('offline-size-range', 'offline-obstacle-count', 'offline-obstacle-count-max');
+  }
 
   // 初期文字の配置(デフォルト/ランダム)によって選べる「初期文字の数」の候補が変わる
   function populateInitialCountOptions(sel, placement) {
@@ -1416,6 +1442,17 @@
   // お邪魔マスの数(選択欄)は、チェックボックスがONのときだけ表示
   $('lobby-obstacles').addEventListener('change', () => { $('lobby-obstacle-count-field').classList.toggle('hidden', !$('lobby-obstacles').checked); });
   $('offline-obstacles').addEventListener('change', () => { $('offline-obstacle-count-field').classList.toggle('hidden', !$('offline-obstacles').checked); });
+  // お邪魔マスの数(手入力)は、盤面サイズに応じた上限(全マスの20%)を超えないようその場で切り詰める
+  $('lobby-obstacle-count').addEventListener('input', () => {
+    const cap = WordChain.maxObstacleCount(WordChain.clampSize($('size-range').value));
+    const el = $('lobby-obstacle-count');
+    if (Number(el.value) > cap) el.value = String(cap);
+  });
+  $('offline-obstacle-count').addEventListener('input', () => {
+    const cap = WordChain.maxObstacleCount(WordChain.clampSize($('offline-size-range').value));
+    const el = $('offline-obstacle-count');
+    if (Number(el.value) > cap) el.value = String(cap);
+  });
 
   // オフラインの対戦相手がCPUのときだけ強さの選択欄を表示
   $('offline-opponent').addEventListener('change', () => { $('offline-cpu-level-field').classList.toggle('hidden', $('offline-opponent').value !== 'cpu'); });

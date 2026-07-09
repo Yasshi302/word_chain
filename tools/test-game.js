@@ -189,19 +189,55 @@ assert(WC.normalizeSmallKana('がっこう') === 'がつこう', '促音を直�
   assert(seen.size === 7, 'ランダム配置は重複しない');
 }
 
-// ---- お邪魔マス生成は初期文字マスを避ける。数(1〜10)を指定できる ----
+// ---- お邪魔マス生成は初期文字マスの周囲2マスを避ける。数は全マス数の20%まで手入力できる ----
 {
-  const initCells = WC.generateInitialCells(10, 'random', 5);
+  const initCells = WC.generateInitialCells(10, 'default', 4); // 固定位置(中央2×2)でテストを決定的にする
   const obstacles = WC.generateObstacleCells(10, initCells, 7);
-  const initSet = new Set(initCells.map(([r, c]) => r + ',' + c));
-  assert(obstacles.every(([r, c]) => !initSet.has(r + ',' + c)), 'お邪魔マスは初期文字マスと重ならない');
+  const chebyshev = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+  assert(
+    obstacles.every(([r, c]) => initCells.every((ic) => chebyshev([r, c], ic) > 2)),
+    'お邪魔マスは初期文字マスの周囲2マス以内には配置されない'
+  );
   assert(obstacles.length === 7, 'お邪魔マスの数は指定通り(7)になる');
-  assert(WC.generateObstacleCells(10, initCells, 15).length === 10, 'お邪魔マスの数は最大10に制限される');
+  assert(WC.maxObstacleCount(10) === 20, '10x10盤面のお邪魔マス上限は全100マスの20%=20');
+  assert(WC.maxObstacleCount(8) === 12, '8x8盤面のお邪魔マス上限は全64マスの20%=12 (floor)');
+  assert(WC.generateObstacleCells(10, initCells, 999).length === 20, 'お邪魔マスの数は20%(20マス)に制限される');
   assert(WC.generateObstacleCells(10, initCells, 0).length === 1, 'お邪魔マスの数は最小1になる');
 }
 
+// ---- 奇数盤面かつデフォルト配置は、真の中央から時計回りに配置する ----
+{
+  const c1 = WC.generateInitialCells(9, 'default', 1);
+  assert(JSON.stringify(c1) === JSON.stringify([[4, 4]]), '9x9デフォルト1マスは真の中央(4,4)');
+  const c4 = WC.generateInitialCells(9, 'default', 4);
+  assert(JSON.stringify(c4) === JSON.stringify([[4, 4], [3, 4], [3, 5], [4, 5]]), '9x9デフォルト4マスは中央から時計回り(北→北東→東)');
+  // 偶数盤面は従来通り2×2ブロック
+  const c4even = WC.generateInitialCells(8, 'default', 4);
+  assert(JSON.stringify(c4even) === JSON.stringify(WC.centerCells(8)), '偶数盤面のデフォルト配置は従来通り2×2ブロック');
+}
+
+// ---- 陣取りモード: 他人のマスを通ると相手の得点を1点減らす ----
+{
+  const gt = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, territoryMode: true });
+  assert(gt.territoryMode === true, 'territoryModeフラグがgameに反映される');
+  WC.applyMove(gt, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0'); // (3,3)あ(既存/初期)(3,4)か(既存/初期,一致)(3,5)り(新規)
+  assert(gt.scores.p0 === 3, '陣取りモードでも自分の得点は単語の全文字数');
+  assert(gt.owner[3][4] === 'p0', '初期文字マス(元は無所有)を通ると所有者になる (誰も減点されない)');
+  assert(gt.scores.p1 === 0, '初期文字マスは元々無所有なので、通っても他人は減点されない');
+  WC.applyMove(gt, { r: 3, c: 5, dir: 6, word: 'りんご' }, 'p1'); // (3,5)り(p0所有)(4,5)ん...
+  assert(gt.scores.p0 === 2, '陣取りモード: 自分のマスをp1に通られたp0は1点減る (3->2)');
+  assert(gt.owner[3][5] === 'p1', '通られたマスの所有者はp1に移る');
+  assert(gt.scores.p1 === 3, 'p1は単語の全文字数を獲得 (通常通り)');
+
+  // 通常モード(territoryMode省略)では所有者を通っても減点されない
+  const gn = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
+  WC.applyMove(gn, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
+  WC.applyMove(gn, { r: 3, c: 5, dir: 6, word: 'りんご' }, 'p1');
+  assert(gn.scores.p0 === 3, '通常モードでは自分のマスを他人に通られても減点されない');
+}
+
 // ---- 時間選択肢 (無制限=0を含む) ----
-assert(JSON.stringify(WC.TIME_CHOICES) === JSON.stringify([10, 30, 60, 180, 300, 0]), '入力時間の選択肢');
+assert(JSON.stringify(WC.TIME_CHOICES) === JSON.stringify([10, 30, 60, 120, 180, 240, 300, 0]), '入力時間の選択肢 (2分・4分を追加)');
 
 console.log(`\n結果: ${passed} 件成功 / ${failed} 件失敗`);
 process.exit(failed > 0 ? 1 : 0);

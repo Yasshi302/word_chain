@@ -98,7 +98,9 @@
             <option value="10">10秒</option>
             <option value="30" selected>30秒</option>
             <option value="60">1分</option>
+            <option value="120">2分</option>
             <option value="180">3分</option>
+            <option value="240">4分</option>
             <option value="300">5分</option>
             <option value="0">無制限</option>
           </select>
@@ -119,18 +121,14 @@
           <span>お邪魔マスを配置する</span>
         </label>
         <label id="lobby-obstacle-count-field" class="field hidden">
-          <span>お邪魔マスの数</span>
-          <select id="lobby-obstacle-count">
-            <option value="1">1マス</option>
-            <option value="2">2マス</option>
-            <option value="3">3マス</option>
-            <option value="4" selected>4マス</option>
-            <option value="5">5マス</option>
-            <option value="6">6マス</option>
-            <option value="7">7マス</option>
-            <option value="8">8マス</option>
-            <option value="9">9マス</option>
-            <option value="10">10マス</option>
+          <span>お邪魔マスの数 (最大 <span id="lobby-obstacle-count-max">12</span>マス = 全マスの20%)</span>
+          <input id="lobby-obstacle-count" type="number" min="1" max="12" step="1" value="4">
+        </label>
+        <label class="field">
+          <span>対戦モード</span>
+          <select id="lobby-scoring-mode">
+            <option value="normal" selected>通常モード</option>
+            <option value="territory">陣取りモード (他人のマスを通ると相手の得点が減る)</option>
           </select>
         </label>
         <p id="lobby-hint" class="muted"></p>
@@ -184,7 +182,9 @@
           <option value="10">10秒</option>
           <option value="30" selected>30秒</option>
           <option value="60">1分</option>
+          <option value="120">2分</option>
           <option value="180">3分</option>
+          <option value="240">4分</option>
           <option value="300">5分</option>
           <option value="0">無制限</option>
         </select>
@@ -205,18 +205,14 @@
         <span>お邪魔マスを配置する</span>
       </label>
       <label id="offline-obstacle-count-field" class="field hidden">
-        <span>お邪魔マスの数</span>
-        <select id="offline-obstacle-count">
-          <option value="1">1マス</option>
-          <option value="2">2マス</option>
-          <option value="3">3マス</option>
-          <option value="4" selected>4マス</option>
-          <option value="5">5マス</option>
-          <option value="6">6マス</option>
-          <option value="7">7マス</option>
-          <option value="8">8マス</option>
-          <option value="9">9マス</option>
-          <option value="10">10マス</option>
+        <span>お邪魔マスの数 (最大 <span id="offline-obstacle-count-max">12</span>マス = 全マスの20%)</span>
+        <input id="offline-obstacle-count" type="number" min="1" max="12" step="1" value="4">
+      </label>
+      <label class="field">
+        <span>対戦モード</span>
+        <select id="offline-scoring-mode">
+          <option value="normal" selected>通常モード</option>
+          <option value="territory">陣取りモード (他人のマスを通ると相手の得点が減る)</option>
         </select>
       </label>
       <div class="menu-buttons">

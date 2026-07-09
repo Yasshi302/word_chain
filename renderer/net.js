@@ -51,7 +51,12 @@ const Net = (() => {
     return Number.isInteger(count)
       && (placementMode === 'random' ? (count >= 1 && count <= 10) : (count === 1 || count === 4));
   }
-  function obstacleCountOk(count) { return Number.isInteger(count) && count >= 1 && count <= 10; }
+  // お邪魔マスの数の上限は盤面の全マス数の20%まで (game.jsのmaxObstacleCountと同じ計算)
+  function maxObstacleCount(size) { return Math.max(1, Math.floor(size * size * 0.2)); }
+  function obstacleCountOk(count, size) {
+    return Number.isInteger(count) && count >= 1 && count <= maxObstacleCount(size);
+  }
+  function scoringModeOk(v) { return v === 'normal' || v === 'territory'; }
 
   // ゲーム系メッセージ種別ごとの検証 (認証系は別処理)。
   const VALIDATORS = {
@@ -76,12 +81,14 @@ const Net = (() => {
         && typeof p.updating === 'boolean'),
     'config': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && placementOk(m.placementMode) && initialCountOk(m.initialCount, m.placementMode)
-      && typeof m.obstacles === 'boolean' && (!m.obstacles || obstacleCountOk(m.obstacleCount)),
+      && typeof m.obstacles === 'boolean' && (!m.obstacles || obstacleCountOk(m.obstacleCount, m.size))
+      && scoringModeOk(m.scoringMode),
     'begin': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && cellsOk(m.initialCells, m.size, 1, 10)
       && Array.isArray(m.initialLetters) && m.initialLetters.length === m.initialCells.length
       && m.initialLetters.every((x) => typeof x === 'string' && HIRA_CHAR.test(x))
-      && cellsOk(m.obstacleCells, m.size, 0, 10)
+      && cellsOk(m.obstacleCells, m.size, 0, maxObstacleCount(m.size))
+      && scoringModeOk(m.scoringMode)
       && Number.isInteger(m.first) && m.first >= 0 && m.first < 4,
     'turn': (m) => typeof m.by === 'string' && Number.isFinite(m.remainingMs),
     'timer': (m) => Number.isFinite(m.remainingMs) && typeof m.running === 'boolean',
@@ -103,7 +110,7 @@ const Net = (() => {
       && Array.isArray(m.blocked) && Array.isArray(m.initialCells)
       && m.scores && typeof m.scores === 'object' && m.active && typeof m.active === 'object'
       && rosterOk(m.players) && Number.isInteger(m.turnIdx)
-      && Array.isArray(m.used) && Array.isArray(m.history),
+      && Array.isArray(m.used) && Array.isArray(m.history) && typeof m.territoryMode === 'boolean',
     'rematch-lobby': () => true,
     'rematch-progress': (m) => Number.isFinite(m.got) && Number.isFinite(m.need),
     'hb': () => true,
@@ -119,7 +126,7 @@ const Net = (() => {
   const MSG_LIMITS = { 'dict-sync': DICT_SYNC_MAX, 'resync': 256 * 1024 };
 
   function sizeOk(n) { return Number.isInteger(n) && n >= 8 && n <= 15; }
-  function timeOk(n) { return [10, 30, 60, 180, 300, 0].includes(n); }
+  function timeOk(n) { return [10, 30, 60, 120, 180, 240, 300, 0].includes(n); }
   function rosterOk(a) {
     return Array.isArray(a) && a.length >= 1 && a.length <= 4
       && a.every((p) => p && typeof p.id === 'string' && p.id.length <= 8

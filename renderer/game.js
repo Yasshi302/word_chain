@@ -21,7 +21,11 @@ const WordChain = (() => {
   const WORD_RE = new RegExp(`^[ぁ-ゖー]{2,${SIZE_MAX}}$`, 'u');
   const CHAR_RE = /^[ぁ-ゖー]$/u;
   // 入力時間の選択肢 (秒)。0 = 無制限。
-  const TIME_CHOICES = [10, 30, 60, 180, 300, 0];
+  const TIME_CHOICES = [10, 30, 60, 120, 180, 240, 300, 0];
+  // お邪魔マスの数の上限は盤面の全マス数の20%まで
+  const OBSTACLE_RATIO_MAX = 0.2;
+  // お邪魔マスは初期文字セルの周囲このマス数(チェビシェフ距離)以内には配置しない
+  const OBSTACLE_AVOID_RADIUS = 2;
   // 初期文字の候補: 単語の先頭になりやすい基本のかな
   const START_LETTER_POOL = [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれわ'];
   // 拗音・促音・小さい母音は、同じ行の直音でも入力できるようにする (例:「ゃ」→「や」)
@@ -169,33 +173,78 @@ const WordChain = (() => {
     return all.slice(0, Math.max(0, Math.min(count, all.length)));
   }
 
+  // 真ん中(北)から時計回りの8方向。奇数盤面のデフォルト配置で使う。
+  const CLOCKWISE_DIRS = [
+    [-1, 0], [-1, 1], [0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1],
+  ];
+
+  /** 奇数盤面の真の中央セルから時計回りにcount個のセルを返す (中央含む) */
+  function centerClockwiseCells(size, count) {
+    const c0 = (size - 1) / 2;
+    const cells = [[c0, c0]];
+    for (let i = 0; i < CLOCKWISE_DIRS.length && cells.length < count; i++) {
+      const [dr, dc] = CLOCKWISE_DIRS[i];
+      cells.push([c0 + dr, c0 + dc]);
+    }
+    return cells.slice(0, count);
+  }
+
   /**
    * 初期文字を置くセルを決める。
    * mode: 'default' (中央固定) | 'random' (盤面内ランダム)
    * count: default時は1か4、random時は1〜10 (呼び出し側で制限済み前提)
+   * 奇数盤面かつdefaultのときは、真の中央セルから時計回りに配置する。
    */
   function generateInitialCells(size, mode, count) {
     const n = Math.max(1, Math.round(count) || 1);
     if (mode === 'random') {
       return randomDistinctCells(size, Math.min(n, size * size));
     }
+    if (size % 2 === 1) {
+      return centerClockwiseCells(size, Math.min(n, 1 + CLOCKWISE_DIRS.length));
+    }
     const center = centerCells(size);
     return center.slice(0, Math.min(n, center.length));
   }
 
-  /** お邪魔マス(進入不可セル)を、初期文字セルを避けてランダムに生成。count: 1〜10 */
+  /** 盤面サイズから、お邪魔マス数の上限 (全マス数の20%) を返す。既存呼び出し元と合わせて維持 */
+  function maxObstacleCount(size) {
+    return Math.max(1, Math.floor(size * size * OBSTACLE_RATIO_MAX));
+  }
+
+  /** cells の各セルを中心とした周囲 radius マス (チェビシェフ距離) を含めて返す (盤外は除く) */
+  function expandAvoidRadius(size, cells, radius) {
+    const set = new Set();
+    const out = [];
+    for (const [cr, cc] of cells) {
+      for (let dr = -radius; dr <= radius; dr++) {
+        for (let dc = -radius; dc <= radius; dc++) {
+          const r = cr + dr, c = cc + dc;
+          if (r < 0 || r >= size || c < 0 || c >= size) continue;
+          const key = r * 100 + c;
+          if (!set.has(key)) { set.add(key); out.push([r, c]); }
+        }
+      }
+    }
+    return out;
+  }
+
+  /** お邪魔マス(進入不可セル)を、初期文字セルとその周囲2マスを避けてランダムに生成。count: 1〜全マス数の20% */
   function generateObstacleCells(size, initialCells, count) {
-    const n = Math.max(1, Math.min(10, Math.round(count) || 1));
-    return randomDistinctCells(size, n, initialCells);
+    const cap = maxObstacleCount(size);
+    const n = Math.max(1, Math.min(cap, Math.round(count) || 1));
+    const avoid = expandAvoidRadius(size, initialCells, OBSTACLE_AVOID_RADIUS);
+    return randomDistinctCells(size, n, avoid);
   }
 
   /**
    * 新規ゲーム。
-   * opts = { size, players, first, timeLimit, initialCells, initialLetters, obstacleCells }
+   * opts = { size, players, first, timeLimit, initialCells, initialLetters, obstacleCells, territoryMode }
    *   players: playerId の配列 (手番順)。例 ['p0','p1']
    *   first:   最初に打つプレーヤーの players 内インデックス (0..n-1)
    *   initialCells/initialLetters: 省略時は中央2×2 (letters は後方互換の別名)
    *   obstacleCells: 省略時はお邪魔マスなし
+   *   territoryMode: true で陣取りモード (他人のマスを通ると相手の得点を1点減らす)。省略時は通常モード。
    */
   function newGame(opts) {
     const size = clampSize(opts.size);
@@ -217,6 +266,7 @@ const WordChain = (() => {
       owner,        // playerId | null (初期文字は null)
       blocked,      // お邪魔マス (true = 進入不可)
       initialCells,
+      territoryMode: !!opts.territoryMode,
       scores,
       players,      // 手番の巡回順
       active,       // playerId -> bool
@@ -378,6 +428,14 @@ const WordChain = (() => {
         game.board[cr][cc] = chars[i];
         game.owner[cr][cc] = by;
         placed.push([cr, cc]);
+      } else if (game.territoryMode) {
+        // 陣取りモード: 他プレーヤーが既に置いたマスを通ると、そのマスを奪う
+        // (元の所有者の得点から1点差し引く。自分自身のマスなら変化なし)
+        const prevOwner = game.owner[cr][cc];
+        if (prevOwner && prevOwner !== by) {
+          game.scores[prevOwner] -= 1;
+        }
+        game.owner[cr][cc] = by;
       }
     }
     game.scores[by] += chars.length;
@@ -424,7 +482,7 @@ const WordChain = (() => {
   return {
     SIZE_MIN, SIZE_MAX, MAX_PLAYERS, DIRS, DIR_ARROWS, MIN_WORD, WORD_RE, CHAR_RE,
     TIME_CHOICES, katakanaToHiragana, romajiToHiragana, normalizeSmallKana, randomLetters, clampSize, centerCells,
-    generateInitialCells, generateObstacleCells,
+    generateInitialCells, generateObstacleCells, maxObstacleCount, centerClockwiseCells,
     newGame, currentPlayer, activeCount, inBounds, maxLen, rayCells, startCells,
     canPlaceDir, hasAnyPlacement, validateMove, applyMove, applyPass, removePlayer,
     winners,
