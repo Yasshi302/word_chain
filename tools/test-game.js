@@ -239,5 +239,90 @@ assert(WC.normalizeSmallKana('がっこう') === 'がつこう', '促音を直�
 // ---- 時間選択肢 (無制限=0を含む) ----
 assert(JSON.stringify(WC.TIME_CHOICES) === JSON.stringify([10, 30, 60, 120, 180, 240, 300, 0]), '入力時間の選択肢 (2分・4分を追加)');
 
+// ---- ボーナスマス: 誰かの得点が全マス数の1/3を超えると、2倍点のマスが出現する ----
+{
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
+  assert(g.bonusMode === true, 'bonusModeフラグがgameに反映される');
+  assert(g.bonusCell === null, '初期状態ではボーナスマスは無い');
+  assert(WC.bonusThresholdMet(g) === false, '得点0では発動条件を満たさない');
+  assert(WC.pickBonusCell(g) === null, '発動条件未達ならボーナスマスは選ばれない (null)');
+  g.scores.p0 = 22; // 8x8=64マスの1/3(約21.33)を超える
+  assert(WC.bonusThresholdMet(g) === true, '誰か1人が全マス数の1/3を超えると発動条件を満たす');
+  const cell = WC.pickBonusCell(g);
+  assert(cell !== null, '発動条件を満たせばボーナスマスが選ばれる');
+  const reachable = WC.reachableEmptyCells(g);
+  assert(reachable.some(([r, c]) => r === cell[0] && c === cell[1]), 'ボーナスマスは開始セルから到達可能な未入力マスの中から選ばれる');
+}
+{
+  // (3,3)あ(既存/初期) →(3,4)か(既存/初期,一致) →(3,5)り(新規) の3マスの単語。ボーナスマスを3マス目に置く
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
+  g.bonusCell = [3, 5];
+  WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
+  assert(g.scores.p0 === 6, 'ボーナスマスを通った単語は得点が2倍になる (3文字→6点)');
+  assert(g.history[g.history.length - 1].points === 6, '履歴のpointsもボーナス反映後の実際の得点(6)になる (単語の文字数そのままではない)');
+}
+{
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
+  g.bonusCell = [5, 5]; // 単語が通らない位置
+  WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
+  assert(g.scores.p0 === 3, 'ボーナスマスを通らない単語は通常通りの得点のまま');
+}
+{
+  // bonusModeを付けなければ、bonusCellが(誤って)設定されていても2倍にならない
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
+  g.bonusCell = [3, 5];
+  WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
+  assert(g.scores.p0 === 3, 'bonusMode無効ならbonusCellがあっても2倍にならない');
+}
+
+// ---- お邪魔マス移動: 未入力マスが盤面の半分になるまで、毎ターンランダムに再配置される ----
+{
+  const size = 10;
+  const initialCells = [[4, 4], [4, 5], [5, 4], [5, 5]];
+  const obstacleCells = [[0, 0], [0, 1]]; // 初期文字マスから十分離れた位置
+  const g = WC.newGame({
+    size, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    obstacleCells, obstacleMove: true,
+  });
+  assert(g.obstacleMove === true, 'obstacleMoveフラグがgameに反映される');
+  assert(WC.obstacleCellList(g).length === 2, '初期のお邪魔マス数がそのまま反映される');
+  const moved = WC.relocateObstacles(g);
+  assert(moved !== null, '未入力マスが半分より多ければ再配置される');
+  assert(moved.length === 2, '再配置後もお邪魔マスの数は変わらない');
+  const chebyshev = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]));
+  assert(moved.every(([r, c]) => initialCells.every((ic) => chebyshev([r, c], ic) > 2)), '再配置後も初期文字マスの周囲2マス以内には配置されない');
+  assert(WC.obstacleCellList(g).length === 2, 'game.blockedも再配置後の位置に正しく更新される');
+}
+{
+  // obstacleMoveを付けなければ再配置しない
+  const g = WC.newGame({
+    size: 10, initialCells: [[4, 4]], initialLetters: ['あ'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    obstacleCells: [[0, 0]],
+  });
+  const moved = WC.relocateObstacles(g);
+  assert(moved === null, 'obstacleMoveが無効なら再配置しない');
+  assert(g.blocked[0][0] === true, '再配置しない場合、元の位置のままになる');
+}
+{
+  // 未入力マスが盤面(8x8=64マス)の半分(32マス)以下になったら移動を止める
+  const size = 8;
+  const g = WC.newGame({
+    size, initialCells: [[3, 3]], initialLetters: ['あ'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    obstacleCells: [[0, 0]], obstacleMove: true,
+  });
+  let filled = 1; // 初期文字マスの分
+  outer:
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (filled >= 34) break outer;
+      if (g.board[r][c] === null && !g.blocked[r][c]) { g.board[r][c] = 'あ'; filled++; }
+    }
+  }
+  assert(WC.emptyCellCount(g) <= (size * size) / 2, 'テスト設定の確認: 未入力マスが盤面の半分以下になっている');
+  const moved = WC.relocateObstacles(g);
+  assert(moved === null, '未入力マスが盤面の半分以下になったら再配置しない');
+  assert(g.blocked[0][0] === true, '再配置しない場合、元の位置のままになる');
+}
+
 console.log(`\n結果: ${passed} 件成功 / ${failed} 件失敗`);
 process.exit(failed > 0 ? 1 : 0);

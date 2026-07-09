@@ -26,7 +26,9 @@
   let initialCount = 4;           // 初期文字の数
   let obstaclesOn = false;        // お邪魔マスの有無
   let obstacleCount = 4;          // お邪魔マスの数 (1〜全マス数の20%)
+  let obstacleMoveOn = false;     // お邪魔マス移動オプションの有無
   let scoringMode = 'normal';     // 'normal' (通常) | 'territory' (陣取り)
+  let bonusModeOn = false;        // ボーナスマスオプションの有無
   let savedName = '';             // アプリ終了まで保持する自分の名前 (オンライン)
   let selection = { r: null, c: null, dir: null };
   let pendingMove = null;
@@ -347,6 +349,17 @@
       for (const [r, c] of WordChain.startCells(game)) cellEls[r][c].classList.add('selectable');
     }
   }
+  // お邪魔マスの移動・ボーナスマスの出現は毎ターン動的に変わるため、盤面全セルを都度反映する
+  function renderHazards() {
+    for (let r = 0; r < game.size; r++) {
+      for (let c = 0; c < game.size; c++) {
+        const el = cellEls[r][c];
+        el.classList.toggle('obstacle', !!(game.blocked && game.blocked[r][c]));
+        const isBonus = !!(game.bonusMode && game.bonusCell && game.bonusCell[0] === r && game.bonusCell[1] === c);
+        el.classList.toggle('bonus', isBonus);
+      }
+    }
+  }
   function renderScores() {
     const box = $('scores');
     box.innerHTML = '';
@@ -371,10 +384,11 @@
     $('turn-indicator').textContent = game.over ? 'ゲーム終了'
       : (mode !== 'offline' && cur === myId) ? 'あなたの番です' : `${nameOf(cur)}の番です`;
   }
-  function addHistoryWord(word, byId) {
+  function addHistoryWord(word, byId, points) {
     const li = document.createElement('li');
     li.className = colorOf(byId);
-    li.textContent = `${nameOf(byId)}: ${word} (+${[...word].length})`;
+    const pts = Number.isFinite(points) ? points : [...word].length;
+    li.textContent = `${nameOf(byId)}: ${word} (+${pts})`;
     $('history').prepend(li);
   }
   function addHistoryPass(byId) {
@@ -391,6 +405,7 @@
       size: opts.size, players: opts.playerIds, first: opts.first, timeLimit: opts.timeLimit,
       initialCells: opts.initialCells, initialLetters: opts.initialLetters, obstacleCells: opts.obstacleCells,
       territoryMode: opts.scoringMode === 'territory',
+      bonusMode: !!opts.bonusMode, obstacleMove: !!opts.obstacleMove,
     });
     pendingMove = null; localProposal = null; approval = null;
     selection = { r: null, c: null, dir: null };
@@ -405,7 +420,7 @@
     onTurnStart();
   }
   function refreshAll() {
-    renderScores(); renderTurn(); renderChain();
+    renderScores(); renderTurn(); renderChain(); renderHazards();
     $('btn-pass').disabled = !isMyInputTurn();
     updateBoardInteractivity();
   }
@@ -418,7 +433,9 @@
     if (isAuthority()) {
       const ms = timeLimitSec > 0 ? timeLimitSec * 1000 : -1;
       startTimer(ms, authorityTimeout);
-      if (mode === 'online-host') Net.broadcast({ t: 'turn', by: cur, remainingMs: ms });
+      if (mode === 'online-host') {
+        Net.broadcast({ t: 'turn', by: cur, remainingMs: ms, bonusCell: game.bonusCell, obstacleCells: WordChain.obstacleCellList(game) });
+      }
     }
     if (mode === 'offline' && isCpuTurn()) {
       setStatus(`${nameOf(cur)}が考えています...`);
@@ -459,12 +476,19 @@
     if (!isAuthority() || !game || game.over || approval || phase !== 'game') return;
     authorityPass(WordChain.currentPlayer(game), true);
   }
+  // お邪魔マスの移動・次のボーナスマスの抽選 (権威側のみ実行し、'turn'配信で結果をゲストへ伝える。
+  // ゲストが独自に乱数を引くと選ばれるマスがホストとずれてしまうため、ここでは呼ばない)
+  function advanceHazards() {
+    WordChain.relocateObstacles(game);
+    game.bonusCell = WordChain.pickBonusCell(game);
+  }
   function authorityApplyMove(move, byId, approved) {
     const placed = WordChain.applyMove(game, move, byId);
     renderPlaced(placed, byId);
     drawLastWordLine(move, byId);
-    addHistoryWord(move.word, byId);
+    addHistoryWord(move.word, byId, game.history[game.history.length - 1].points);
     if (approved) Sound.sfx('approve');
+    advanceHazards();
     if (mode === 'online-host') Net.broadcast({ t: 'move-applied', by: byId, r: move.r, c: move.c, dir: move.dir, word: move.word, approved: !!approved });
     onTurnStart();
   }
@@ -472,6 +496,7 @@
     if (!game || game.over || WordChain.currentPlayer(game) !== byId) return;
     addHistoryPass(byId);
     WordChain.applyPass(game);
+    if (!game.over) advanceHazards();
     if (mode === 'online-host') Net.broadcast({ t: 'pass-applied', by: byId });
     setStatus(timeout ? `${nameOf(byId)}が時間切れでパスしました。` : `${nameOf(byId)}がパスしました。`);
     if (game.over && mode === 'online-host') Net.broadcast({ t: 'game-over', scores: game.scores, winners: WordChain.winners(game) });
@@ -689,7 +714,9 @@
     initialCount = Number($('offline-initial-count').value);
     obstaclesOn = $('offline-obstacles').checked;
     obstacleCount = Number($('offline-obstacle-count').value);
+    obstacleMoveOn = obstaclesOn && $('offline-obstacle-move').checked;
     scoringMode = $('offline-scoring-mode').value === 'territory' ? 'territory' : 'normal';
+    bonusModeOn = $('offline-bonus-mode').checked;
     const opponent = $('offline-opponent').value;
     const cpuLevel = $('offline-cpu-level').value;
     roster = [];
@@ -717,7 +744,7 @@
     beginLocalGame({
       size: boardSize, initialCells, initialLetters, obstacleCells,
       first: randInt(roster.length), timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id),
-      scoringMode,
+      scoringMode, bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn,
     });
   }
   function randInt(max) { const b = new Uint32Array(1); crypto.getRandomValues(b); return b[0] % max; }
@@ -953,6 +980,7 @@
       scores: game.scores, active: game.active, players: publicRoster(), turnIdx: game.turnIdx, chain: game.chain,
       used: [...game.usedWords], history: game.history, timeLimit: game.timeLimit, over: game.over, remainingMs: timer.remaining,
       territoryMode: game.territoryMode,
+      bonusMode: game.bonusMode, bonusCell: game.bonusCell, obstacleMove: game.obstacleMove,
     };
   }
   function hostOnMessage(connId, m) {
@@ -1050,12 +1078,15 @@
     initialCount = Number($('lobby-initial-count').value);
     obstaclesOn = $('lobby-obstacles').checked;
     obstacleCount = Number($('lobby-obstacle-count').value);
+    obstacleMoveOn = obstaclesOn && $('lobby-obstacle-move').checked;
     scoringMode = $('lobby-scoring-mode').value === 'territory' ? 'territory' : 'normal';
+    bonusModeOn = $('lobby-bonus-mode').checked;
     phase = 'confirm';
     confirmAcks = new Set([myId]);
     Net.broadcast({
       t: 'config', size: boardSize, timeLimit: timeLimitSec, players: publicRoster(),
       placementMode, initialCount, obstacles: obstaclesOn, obstacleCount, scoringMode,
+      bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn,
     });
     $('lobby-status').textContent = 'ゲストの確認を待っています...';
     $('btn-lobby-start').disabled = true;
@@ -1073,10 +1104,12 @@
       Net.broadcast({
         t: 'begin', size: boardSize, initialCells, initialLetters, obstacleCells,
         timeLimit: timeLimitSec, players: publicRoster(), first, scoringMode,
+        bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn,
       });
       beginLocalGame({
         size: boardSize, initialCells, initialLetters, obstacleCells,
         first, timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id), scoringMode,
+        bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn,
       });
     }
   }
@@ -1122,6 +1155,7 @@
         beginLocalGame({
           size: m.size, initialCells: m.initialCells, initialLetters: m.initialLetters, obstacleCells: m.obstacleCells,
           first: m.first, timeLimit: m.timeLimit, playerIds: m.players.map((p) => p.id), scoringMode: m.scoringMode,
+          bonusMode: m.bonusMode, obstacleMove: m.obstacleMove,
         });
         break;
       case 'turn': guestOnTurn(m); break;
@@ -1159,8 +1193,9 @@
       `<div class="row"><span>入力時間</span><span>${timeText(m.timeLimit)}</span></div>` +
       `<div class="row"><span>初期文字の配置</span><span>${m.placementMode === 'random' ? 'ランダム' : 'デフォルト (中央)'}</span></div>` +
       `<div class="row"><span>初期文字の数</span><span>${m.initialCount} マス</span></div>` +
-      `<div class="row"><span>お邪魔マス</span><span>${m.obstacles ? `あり (${m.obstacleCount}マス)` : 'なし'}</span></div>` +
+      `<div class="row"><span>お邪魔マス</span><span>${m.obstacles ? `あり (${m.obstacleCount}マス${m.obstacleMove ? '・移動あり' : ''})` : 'なし'}</span></div>` +
       `<div class="row"><span>対戦モード</span><span>${m.scoringMode === 'territory' ? '陣取りモード' : '通常モード'}</span></div>` +
+      `<div class="row"><span>ボーナスマス</span><span>${m.bonusMode ? 'あり' : 'なし'}</span></div>` +
       `<div class="row"><span>参加者 (${m.players.length}人)</span><span>${escapeHtml(names)}</span></div>`;
     showModal('modal-confirm');
   }
@@ -1173,6 +1208,13 @@
     selection = { r: null, c: null, dir: null };
     hideDirPanel(); hideModal('modal-word');
     setTimerDisplay(m.remainingMs, true);
+    game.bonusCell = m.bonusCell || null;
+    if (Array.isArray(m.obstacleCells)) {
+      const size = game.size;
+      const blocked = Array.from({ length: size }, () => Array(size).fill(false));
+      for (const [r, c] of m.obstacleCells) blocked[r][c] = true;
+      game.blocked = blocked;
+    }
     refreshAll();
     const cur = WordChain.currentPlayer(game);
     if (cur === myId) {
@@ -1200,7 +1242,7 @@
     const placed = WordChain.applyMove(game, move, m.by);
     renderPlaced(placed, m.by);
     drawLastWordLine(move, m.by);
-    addHistoryWord(m.word, m.by);
+    addHistoryWord(m.word, m.by, game.history[game.history.length - 1].points);
     if (m.approved) { Sound.sfx('approve'); if (!inDict(m.word)) addWordToDict(m.word); }
     pendingMove = null;
     refreshAll();
@@ -1230,10 +1272,12 @@
     game.active = m.active; game.turnIdx = m.turnIdx; game.chain = m.chain;
     game.usedWords = new Set(m.used); game.history = m.history; game.over = m.over;
     game.territoryMode = !!m.territoryMode;
+    game.bonusMode = !!m.bonusMode; game.bonusCell = m.bonusCell || null;
+    game.obstacleMove = !!m.obstacleMove;
     phase = 'game'; hideAllModals();
     buildBoardDOM();
     $('history').innerHTML = '';
-    game.history.forEach((h) => { h.pass ? addHistoryPass(h.by) : addHistoryWord(h.word, h.by); });
+    game.history.forEach((h) => { h.pass ? addHistoryPass(h.by) : addHistoryWord(h.word, h.by, h.points); });
     showScreen('screen-game');
     setTimerDisplay(m.remainingMs, false);
     refreshAll();
@@ -1440,8 +1484,16 @@
   populateInitialCountOptions($('offline-initial-count'), $('offline-placement').value);
 
   // お邪魔マスの数(選択欄)は、チェックボックスがONのときだけ表示
-  $('lobby-obstacles').addEventListener('change', () => { $('lobby-obstacle-count-field').classList.toggle('hidden', !$('lobby-obstacles').checked); });
-  $('offline-obstacles').addEventListener('change', () => { $('offline-obstacle-count-field').classList.toggle('hidden', !$('offline-obstacles').checked); });
+  $('lobby-obstacles').addEventListener('change', () => {
+    const on = $('lobby-obstacles').checked;
+    $('lobby-obstacle-count-field').classList.toggle('hidden', !on);
+    $('lobby-obstacle-move-field').classList.toggle('hidden', !on);
+  });
+  $('offline-obstacles').addEventListener('change', () => {
+    const on = $('offline-obstacles').checked;
+    $('offline-obstacle-count-field').classList.toggle('hidden', !on);
+    $('offline-obstacle-move-field').classList.toggle('hidden', !on);
+  });
   // お邪魔マスの数(手入力)は、盤面サイズに応じた上限(全マスの20%)を超えないようその場で切り詰める
   $('lobby-obstacle-count').addEventListener('input', () => {
     const cap = WordChain.maxObstacleCount(WordChain.clampSize($('size-range').value));

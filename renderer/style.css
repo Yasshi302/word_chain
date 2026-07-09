@@ -270,6 +270,27 @@ h2 { margin-top: 0; }
   background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.12), transparent 60%);
 }
 
+/* ボーナスマス: このマスを通った単語は得点が2倍になる */
+.cell.bonus {
+  background: radial-gradient(circle at 50% 45%, rgba(230, 184, 76, .55), var(--bg-cell) 72%);
+  box-shadow: 0 0 12px rgba(230, 184, 76, .55);
+  animation: bonus-pulse 1.6s ease-in-out infinite;
+}
+.cell.bonus::after {
+  content: '×2';
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--gold);
+  line-height: 1;
+}
+@keyframes bonus-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(230, 184, 76, .4); }
+  50% { box-shadow: 0 0 16px rgba(230, 184, 76, .75); }
+}
+
 @keyframes pop {
   0% { transform: scale(.5); }
   70% { transform: scale(1.15); }

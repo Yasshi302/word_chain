@@ -57,6 +57,11 @@ const Net = (() => {
     return Number.isInteger(count) && count >= 1 && count <= maxObstacleCount(size);
   }
   function scoringModeOk(v) { return v === 'normal' || v === 'territory'; }
+  function cellOrNullOk(v) {
+    return v === null || v === undefined || (Array.isArray(v) && v.length === 2
+      && Number.isInteger(v[0]) && v[0] >= 0 && v[0] < 15
+      && Number.isInteger(v[1]) && v[1] >= 0 && v[1] < 15);
+  }
 
   // ゲーム系メッセージ種別ごとの検証 (認証系は別処理)。
   const VALIDATORS = {
@@ -82,15 +87,19 @@ const Net = (() => {
     'config': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && placementOk(m.placementMode) && initialCountOk(m.initialCount, m.placementMode)
       && typeof m.obstacles === 'boolean' && (!m.obstacles || obstacleCountOk(m.obstacleCount, m.size))
-      && scoringModeOk(m.scoringMode),
+      && scoringModeOk(m.scoringMode)
+      && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean',
     'begin': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && cellsOk(m.initialCells, m.size, 1, 10)
       && Array.isArray(m.initialLetters) && m.initialLetters.length === m.initialCells.length
       && m.initialLetters.every((x) => typeof x === 'string' && HIRA_CHAR.test(x))
       && cellsOk(m.obstacleCells, m.size, 0, maxObstacleCount(m.size))
       && scoringModeOk(m.scoringMode)
+      && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
       && Number.isInteger(m.first) && m.first >= 0 && m.first < 4,
-    'turn': (m) => typeof m.by === 'string' && Number.isFinite(m.remainingMs),
+    'turn': (m) => typeof m.by === 'string' && Number.isFinite(m.remainingMs)
+      && cellOrNullOk(m.bonusCell)
+      && (m.obstacleCells === undefined || cellsOk(m.obstacleCells, 15, 0, maxObstacleCount(15))),
     'timer': (m) => Number.isFinite(m.remainingMs) && typeof m.running === 'boolean',
     'move-applied': (m) => typeof m.by === 'string'
       && Number.isInteger(m.r) && Number.isInteger(m.c) && Number.isInteger(m.dir)
@@ -110,7 +119,9 @@ const Net = (() => {
       && Array.isArray(m.blocked) && Array.isArray(m.initialCells)
       && m.scores && typeof m.scores === 'object' && m.active && typeof m.active === 'object'
       && rosterOk(m.players) && Number.isInteger(m.turnIdx)
-      && Array.isArray(m.used) && Array.isArray(m.history) && typeof m.territoryMode === 'boolean',
+      && Array.isArray(m.used) && Array.isArray(m.history) && typeof m.territoryMode === 'boolean'
+      && typeof m.bonusMode === 'boolean' && cellOrNullOk(m.bonusCell)
+      && typeof m.obstacleMove === 'boolean',
     'rematch-lobby': () => true,
     'rematch-progress': (m) => Number.isFinite(m.got) && Number.isFinite(m.need),
     'hb': () => true,

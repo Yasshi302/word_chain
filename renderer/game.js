@@ -239,12 +239,18 @@ const WordChain = (() => {
 
   /**
    * 新規ゲーム。
-   * opts = { size, players, first, timeLimit, initialCells, initialLetters, obstacleCells, territoryMode }
+   * opts = { size, players, first, timeLimit, initialCells, initialLetters, obstacleCells, territoryMode, bonusMode, obstacleMove }
    *   players: playerId の配列 (手番順)。例 ['p0','p1']
    *   first:   最初に打つプレーヤーの players 内インデックス (0..n-1)
    *   initialCells/initialLetters: 省略時は中央2×2 (letters は後方互換の別名)
    *   obstacleCells: 省略時はお邪魔マスなし
    *   territoryMode: true で陣取りモード (他人のマスを通ると相手の得点を1点減らす)。省略時は通常モード。
+   *   bonusMode: true でボーナスマスオプション有効 (誰かの得点が全マス数の1/3を超えると、
+   *              手番開始時に選び直される1マスが2倍点になる。上限は呼び出し側が毎ターン
+   *              pickBonusCell() を呼んでgame.bonusCellに設定する想定。省略時は無効)。
+   *   obstacleMove: true でお邪魔マス移動オプション有効 (盤面の未入力マスが全マス数の半分に
+   *              なるまで、呼び出し側が毎ターン relocateObstacles() を呼ぶとお邪魔マスが
+   *              ランダムに再配置される想定。省略時は無効)。
    */
   function newGame(opts) {
     const size = clampSize(opts.size);
@@ -267,6 +273,9 @@ const WordChain = (() => {
       blocked,      // お邪魔マス (true = 進入不可)
       initialCells,
       territoryMode: !!opts.territoryMode,
+      bonusMode: !!opts.bonusMode,
+      bonusCell: null,   // [r, c] | null。呼び出し側がpickBonusCell()で毎ターン更新する
+      obstacleMove: !!opts.obstacleMove,
       scores,
       players,      // 手番の巡回順
       active,       // playerId -> bool
@@ -321,6 +330,94 @@ const WordChain = (() => {
   function startCells(game) {
     if (game.chain) return [[game.chain.r, game.chain.c]];
     return game.initialCells;
+  }
+
+  /** 盤面上の未入力(null)マスの数 */
+  function emptyCellCount(game) {
+    let n = 0;
+    for (let r = 0; r < game.size; r++) {
+      for (let c = 0; c < game.size; c++) if (game.board[r][c] === null) n++;
+    }
+    return n;
+  }
+
+  /** 誰か1人の得点が全マス数の1/3を超えているか (ボーナスマスの発動条件) */
+  function bonusThresholdMet(game) {
+    const threshold = (game.size * game.size) / 3;
+    return game.players.some((p) => game.scores[p] > threshold);
+  }
+
+  /**
+   * 現在の開始セル(startCells)から8方向に伸ばして到達できる、未入力(null)のセル一覧。
+   * お邪魔マスの手前で止まる(maxLenと同じ制約)。ボーナスマスの候補計算に使う。
+   */
+  function reachableEmptyCells(game) {
+    const seen = new Set();
+    const out = [];
+    for (const [r, c] of startCells(game)) {
+      for (let d = 0; d < 8; d++) {
+        const L = maxLen(game, r, c, d);
+        const ray = rayCells(r, c, d, L);
+        for (let i = 1; i < ray.length; i++) {
+          const [cr, cc] = ray[i];
+          if (game.board[cr][cc] !== null) continue;
+          const key = cr * 100 + cc;
+          if (!seen.has(key)) { seen.add(key); out.push([cr, cc]); }
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * この手番のボーナスマスを選ぶ (権威側が毎ターン開始時に呼び、game.bonusCellへ代入する想定)。
+   * bonusModeが無効、条件未達、候補が無い場合はnull。
+   */
+  function pickBonusCell(game) {
+    if (!game.bonusMode || !bonusThresholdMet(game)) return null;
+    const candidates = reachableEmptyCells(game);
+    if (candidates.length === 0) return null;
+    return candidates[randomInt(candidates.length)];
+  }
+
+  /**
+   * お邪魔マスをランダムに再配置する (権威側が毎ターン開始時に呼ぶ想定。game.blockedを直接書き換える)。
+   * obstacleMoveが無効、お邪魔マスが無い、または未入力マスが全マス数の半分以下になった場合は何もしない。
+   * @returns 再配置後のお邪魔マス一覧、または再配置しなかった場合はnull
+   */
+  function relocateObstacles(game) {
+    if (!game.obstacleMove) return null;
+    const oldCells = [];
+    for (let r = 0; r < game.size; r++) {
+      for (let c = 0; c < game.size; c++) if (game.blocked[r][c]) oldCells.push([r, c]);
+    }
+    if (oldCells.length === 0) return null;
+    if (emptyCellCount(game) <= (game.size * game.size) / 2) return null;
+    for (const [r, c] of oldCells) game.blocked[r][c] = false;
+    const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
+    const avoidSet = new Set(avoid.map(([r, c]) => r * 100 + c));
+    const pool = [];
+    for (let r = 0; r < game.size; r++) {
+      for (let c = 0; c < game.size; c++) {
+        if (game.board[r][c] === null && !avoidSet.has(r * 100 + c)) pool.push([r, c]);
+      }
+    }
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const newCells = pool.slice(0, oldCells.length);
+    for (const [r, c] of newCells) game.blocked[r][c] = true;
+    return newCells;
+  }
+
+  /** 現在お邪魔マスになっているセル一覧 (盤面全体を走査)。ネットワーク送信用 */
+  function obstacleCellList(game) {
+    const out = [];
+    for (let r = 0; r < game.size; r++) {
+      for (let c = 0; c < game.size; c++) if (game.blocked[r][c]) out.push([r, c]);
+    }
+    return out;
   }
 
   /** 指定セル・方向に単語を置ける余地があるか (最低2文字+新規1マス以上) */
@@ -438,9 +535,13 @@ const WordChain = (() => {
         game.owner[cr][cc] = by;
       }
     }
-    game.scores[by] += chars.length;
+    // ボーナスマス: このマスを通った単語は得点(文字数)が2倍になる
+    const bonusHit = game.bonusMode && game.bonusCell
+      && cells.some(([cr, cc]) => cr === game.bonusCell[0] && cc === game.bonusCell[1]);
+    const points = chars.length * (bonusHit ? 2 : 1);
+    game.scores[by] += points;
     game.usedWords.add(move.word);
-    game.history.push({ word: move.word, by });
+    game.history.push({ word: move.word, by, points });
     const [lr, lc] = cells[cells.length - 1];
     game.chain = { r: lr, c: lc };
     game.passStreak = 0;
@@ -485,7 +586,8 @@ const WordChain = (() => {
     generateInitialCells, generateObstacleCells, maxObstacleCount, centerClockwiseCells,
     newGame, currentPlayer, activeCount, inBounds, maxLen, rayCells, startCells,
     canPlaceDir, hasAnyPlacement, validateMove, applyMove, applyPass, removePlayer,
-    winners,
+    winners, emptyCellCount, bonusThresholdMet, reachableEmptyCells, pickBonusCell,
+    relocateObstacles, obstacleCellList,
   };
 })();
 

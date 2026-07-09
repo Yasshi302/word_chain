@@ -124,12 +124,20 @@
           <span>お邪魔マスの数 (最大 <span id="lobby-obstacle-count-max">12</span>マス = 全マスの20%)</span>
           <input id="lobby-obstacle-count" type="number" min="1" max="12" step="1" value="4">
         </label>
+        <label id="lobby-obstacle-move-field" class="field checkbox-field hidden">
+          <input id="lobby-obstacle-move" type="checkbox">
+          <span>お邪魔マスを移動させる (盤面の半分が埋まるまで、毎ターンランダムに移動)</span>
+        </label>
         <label class="field">
           <span>対戦モード</span>
           <select id="lobby-scoring-mode">
             <option value="normal" selected>通常モード</option>
             <option value="territory">陣取りモード (他人のマスを通ると相手の得点が減る)</option>
           </select>
+        </label>
+        <label class="field checkbox-field">
+          <input id="lobby-bonus-mode" type="checkbox">
+          <span>ボーナスマスを有効にする (誰かの得点が全マスの1/3を超えると、2倍点のマスが出現)</span>
         </label>
         <p id="lobby-hint" class="muted"></p>
       </div>
@@ -208,12 +216,20 @@
         <span>お邪魔マスの数 (最大 <span id="offline-obstacle-count-max">12</span>マス = 全マスの20%)</span>
         <input id="offline-obstacle-count" type="number" min="1" max="12" step="1" value="4">
       </label>
+      <label id="offline-obstacle-move-field" class="field checkbox-field hidden">
+        <input id="offline-obstacle-move" type="checkbox">
+        <span>お邪魔マスを移動させる (盤面の半分が埋まるまで、毎ターンランダムに移動)</span>
+      </label>
       <label class="field">
         <span>対戦モード</span>
         <select id="offline-scoring-mode">
           <option value="normal" selected>通常モード</option>
           <option value="territory">陣取りモード (他人のマスを通ると相手の得点が減る)</option>
         </select>
+      </label>
+      <label class="field checkbox-field">
+        <input id="offline-bonus-mode" type="checkbox">
+        <span>ボーナスマスを有効にする (誰かの得点が全マスの1/3を超えると、2倍点のマスが出現)</span>
       </label>
       <div class="menu-buttons">
         <button id="btn-offline-start" class="btn primary">対戦を始める</button>
