@@ -26,6 +26,8 @@ const WordChain = (() => {
   const OBSTACLE_RATIO_MAX = 0.2;
   // お邪魔マスは初期文字セルの周囲このマス数(チェビシェフ距離)以内には配置しない
   const OBSTACLE_AVOID_RADIUS = 2;
+  // お邪魔マス移動オプション: 1ターンに再配置されるお邪魔マスの数の上限
+  const OBSTACLE_MOVE_MAX_PER_TURN = 5;
   // 初期文字の候補: 単語の先頭になりやすい基本のかな
   const START_LETTER_POOL = [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれわ'];
   // 拗音・促音・小さい母音は、同じ行の直音でも入力できるようにする (例:「ゃ」→「や」)
@@ -383,7 +385,8 @@ const WordChain = (() => {
   /**
    * お邪魔マスをランダムに再配置する (権威側が毎ターン開始時に呼ぶ想定。game.blockedを直接書き換える)。
    * obstacleMoveが無効、お邪魔マスが無い、または未入力マスが全マス数の半分以下になった場合は何もしない。
-   * @returns 再配置後のお邪魔マス一覧、または再配置しなかった場合はnull
+   * 1ターンに移動するお邪魔マスは最大 OBSTACLE_MOVE_MAX_PER_TURN(5)マスまで (残りは元の位置のまま)。
+   * @returns 今回新しく移動した先のセル一覧、または再配置しなかった場合はnull
    */
   function relocateObstacles(game) {
     if (!game.obstacleMove) return null;
@@ -393,21 +396,31 @@ const WordChain = (() => {
     }
     if (oldCells.length === 0) return null;
     if (emptyCellCount(game) <= (game.size * game.size) / 2) return null;
-    for (const [r, c] of oldCells) game.blocked[r][c] = false;
+    for (let i = oldCells.length - 1; i > 0; i--) {
+      const j = randomInt(i + 1);
+      [oldCells[i], oldCells[j]] = [oldCells[j], oldCells[i]];
+    }
+    const movingCells = oldCells.slice(0, Math.min(OBSTACLE_MOVE_MAX_PER_TURN, oldCells.length));
+    for (const [r, c] of movingCells) game.blocked[r][c] = false;
     const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
     const avoidSet = new Set(avoid.map(([r, c]) => r * 100 + c));
     const pool = [];
     for (let r = 0; r < game.size; r++) {
       for (let c = 0; c < game.size; c++) {
-        if (game.board[r][c] === null && !avoidSet.has(r * 100 + c)) pool.push([r, c]);
+        if (game.board[r][c] === null && !game.blocked[r][c] && !avoidSet.has(r * 100 + c)) pool.push([r, c]);
       }
     }
     for (let i = pool.length - 1; i > 0; i--) {
       const j = randomInt(i + 1);
       [pool[i], pool[j]] = [pool[j], pool[i]];
     }
-    const newCells = pool.slice(0, oldCells.length);
+    const newCells = pool.slice(0, movingCells.length);
     for (const [r, c] of newCells) game.blocked[r][c] = true;
+    // 空きマスが足りず移動先が確保できなかった分は、元の位置に戻す(お邪魔マスの総数を維持する)
+    for (let i = newCells.length; i < movingCells.length; i++) {
+      const [r, c] = movingCells[i];
+      game.blocked[r][c] = true;
+    }
     return newCells;
   }
 
@@ -587,7 +600,7 @@ const WordChain = (() => {
     newGame, currentPlayer, activeCount, inBounds, maxLen, rayCells, startCells,
     canPlaceDir, hasAnyPlacement, validateMove, applyMove, applyPass, removePlayer,
     winners, emptyCellCount, bonusThresholdMet, reachableEmptyCells, pickBonusCell,
-    relocateObstacles, obstacleCellList,
+    relocateObstacles, obstacleCellList, OBSTACLE_MOVE_MAX_PER_TURN,
   };
 })();
 

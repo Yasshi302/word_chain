@@ -294,6 +294,28 @@ assert(JSON.stringify(WC.TIME_CHOICES) === JSON.stringify([10, 30, 60, 120, 180,
   assert(WC.obstacleCellList(g).length === 2, 'game.blockedも再配置後の位置に正しく更新される');
 }
 {
+  // お邪魔マスが5個より多い場合、1ターンに移動するのは最大5個まで
+  const size = 12;
+  const initialCells = [[5, 5], [5, 6], [6, 5], [6, 6]];
+  const obstacleCells = [[0, 0], [0, 2], [0, 4], [0, 6], [0, 8], [0, 10], [11, 0], [11, 2]]; // 8個
+  const g = WC.newGame({
+    size, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    obstacleCells, obstacleMove: true,
+  });
+  assert(WC.obstacleCellList(g).length === 8, '初期のお邪魔マス数(8個)がそのまま反映される');
+  const oldSet = new Set(obstacleCells.map(([r, c]) => r + ',' + c));
+  const moved = WC.relocateObstacles(g);
+  assert(WC.OBSTACLE_MOVE_MAX_PER_TURN === 5, '1ターンの移動上限は5マス');
+  assert(moved.length === 5, '8個中、1ターンに移動するのは5個まで');
+  assert(WC.obstacleCellList(g).length === 8, '移動後もお邪魔マスの総数(8個)は変わらない');
+  const afterSet = new Set(WC.obstacleCellList(g).map(([r, c]) => r + ',' + c));
+  let unchangedCount = 0;
+  for (const key of oldSet) if (afterSet.has(key)) unchangedCount++;
+  // 移動対象に選ばれなかった3個は必ず元の位置に残る (移動した5個のうち、たまたま
+  // 元の位置に戻ることもあり得るため、一致数は3以上になる)
+  assert(unchangedCount >= 3, '移動しなかった3個(以上)は元の位置のまま残る');
+}
+{
   // obstacleMoveを付けなければ再配置しない
   const g = WC.newGame({
     size: 10, initialCells: [[4, 4]], initialLetters: ['あ'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
