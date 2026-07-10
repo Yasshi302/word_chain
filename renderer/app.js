@@ -30,6 +30,8 @@
   let scoringMode = 'normal';     // 'normal' (通常) | 'territory' (陣取り)
   let bonusModeOn = false;        // ボーナスマスオプションの有無
   let itemsModeOn = false;        // アイテム(クリア・ブロック)オプションの有無
+  let coopModeOn = false;         // 協力モード(CPU1体 vs プレーヤー全員)の有無
+  let coopCpuLevel = 'normal';    // 協力モードCPUの強さ ('weak'|'normal'|'strong'|'strongest')
   let savedName = '';             // アプリ終了まで保持する自分の名前 (オンライン)
   let selection = { r: null, c: null, dir: null };
   let pendingMove = null;
@@ -76,7 +78,9 @@
   function nameOf(id) { const e = entryOf(id); return e ? e.name : id; }
   function slotIndex(id) { return roster.findIndex((p) => p.id === id); }
   function colorOf(id) { const i = slotIndex(id); return 'p' + (i < 0 ? 0 : i); }
-  function publicRoster() { return roster.map((p) => ({ id: p.id, name: p.name })); }
+  // cpuLevelは協力モードのCPU席('coop')を全員に伝えるためだけに含める
+  // (弱い/普通/強い/最強のオフライン専用CPUレベルはネットワークでは使わない)。
+  function publicRoster() { return roster.map((p) => ({ id: p.id, name: p.name, cpuLevel: p.cpuLevel === 'coop' ? 'coop' : null })); }
   function activeIds() { return roster.filter((p) => p.connected).map((p) => p.id); }
 
   function isCpuTurn() {
@@ -435,6 +439,14 @@
   // ---------------- 進行 ----------------
   function beginLocalGame(opts) {
     timeLimitSec = opts.timeLimit; boardSize = opts.size;
+    // ロースター内にCPU席(通常の強さ別CPU、または協力モードのCPU)が1つでもあれば、
+    // 権威側(オフライン、またはオンラインならホスト)がCPUの手を選ぶための辞書索引を用意する。
+    if (roster.some((p) => p.cpuLevel)) {
+      cpuWordIndex = CPU.buildWordIndex([baseDict, customWords]);
+      cpuStartCharCounts = CPU.buildStartCharCounts([baseDict, customWords]);
+    } else {
+      cpuWordIndex = null; cpuStartCharCounts = null;
+    }
     game = WordChain.newGame({
       size: opts.size, players: opts.playerIds, first: opts.first, timeLimit: opts.timeLimit,
       initialCells: opts.initialCells, initialLetters: opts.initialLetters, obstacleCells: opts.obstacleCells,
@@ -476,7 +488,7 @@
         });
       }
     }
-    if (mode === 'offline' && isCpuTurn()) {
+    if (isAuthority() && isCpuTurn()) {
       setStatus(`${nameOf(cur)}が考えています...`);
       scheduleCpuTurn();
       return;
@@ -499,14 +511,26 @@
       cpuTimer = null;
       if (!game || game.over || phase !== 'game') return;
       if (WordChain.currentPlayer(game) !== cur) return; // 状況が変わっていれば何もしない
-      const move = CPU.chooseMove(game, cpuWordIndex, startChars, level, cpuStartCharCounts);
+      const move = level === 'coop'
+        ? CPU.chooseCoopMove(game, cpuWordIndex, startChars, cpuStartCharCounts, entryOf(cur).coopLevel)
+        : CPU.chooseMove(game, cpuWordIndex, startChars, level, cpuStartCharCounts);
       if (!move) { authorityPass(cur, false); return; }
       authorityHandleMove(cur, { r: move.r, c: move.c, dir: move.dir, word: move.word });
     }, delay);
   }
+  // 協力モード(CPU1体 vs プレーヤー全員)のとき、チーム合計スコアとCPUのスコアを比較する。
+  // 協力モードでなければnull。
+  function coopResult() {
+    const coopCpu = roster.find((p) => p.cpuLevel === 'coop');
+    if (!coopCpu) return null;
+    const teamTotal = roster.filter((p) => p.id !== coopCpu.id).reduce((sum, p) => sum + (game.scores[p.id] || 0), 0);
+    const cpuScore = game.scores[coopCpu.id] || 0;
+    return { coopCpu, teamTotal, cpuScore, teamWon: teamTotal > cpuScore };
+  }
   function onGameOver() {
     stopTimer(); countResult(); phase = 'over'; refreshAll(); showResult();
-    const won = (mode === 'offline') || WordChain.winners(game).includes(myId);
+    const coop = coopResult();
+    const won = coop ? coop.teamWon : (mode === 'offline') || WordChain.winners(game).includes(myId);
     Sound.sfx(won ? 'win' : 'lose');
   }
 
@@ -733,9 +757,21 @@
   function showResult() {
     const wins = WordChain.winners(game);
     const ranked = roster.slice().sort((a, b) => game.scores[b.id] - game.scores[a.id]);
-    if (mode === 'offline') $('result-title').textContent = wins.length === 1 ? `${nameOf(wins[0])}の勝ち!` : '引き分け';
+    const coop = coopResult();
+    if (coop) {
+      $('result-title').textContent = coop.teamWon ? 'チームの勝利!' : (coop.teamTotal === coop.cpuScore ? '引き分け' : 'CPUの勝利...');
+    } else if (mode === 'offline') $('result-title').textContent = wins.length === 1 ? `${nameOf(wins[0])}の勝ち!` : '引き分け';
     else $('result-title').textContent = wins.includes(myId) ? (wins.length === 1 ? 'あなたの勝ち!' : '引き分け (あなたを含む)') : `${nameOf(wins[0])}の勝ち`;
     const box = $('result-detail'); box.innerHTML = '';
+    if (coop) {
+      const teamRow = document.createElement('div');
+      teamRow.className = 'rank-row coop-summary-row' + (coop.teamWon ? ' winner' : '');
+      teamRow.innerHTML = `<span class="rank-name">チーム合計</span><span class="rank-score">${coop.teamTotal} 点</span>`;
+      const cpuRow = document.createElement('div');
+      cpuRow.className = 'rank-row coop-summary-row' + (!coop.teamWon && coop.teamTotal !== coop.cpuScore ? ' winner' : '');
+      cpuRow.innerHTML = `<span class="rank-name">CPU (${escapeHtml(coop.coopCpu.name)})</span><span class="rank-score">${coop.cpuScore} 点</span>`;
+      box.appendChild(teamRow); box.appendChild(cpuRow);
+    }
     let pos = 1;
     ranked.forEach((p, i) => {
       if (i > 0 && game.scores[p.id] < game.scores[ranked[i - 1].id]) pos = i + 1;
@@ -774,7 +810,8 @@
   // ================= オフライン =================
   function startOffline() {
     mode = 'offline'; myId = null;
-    const n = Number($('offline-count').value);
+    coopModeOn = $('offline-coop-mode').checked;
+    const n = Math.min(Number($('offline-count').value), coopModeOn ? WordChain.MAX_PLAYERS - 1 : WordChain.MAX_PLAYERS);
     boardSize = WordChain.clampSize($('offline-size-range').value);
     timeLimitSec = Number($('offline-time').value);
     placementMode = $('offline-placement').value === 'random' ? 'random' : 'default';
@@ -785,7 +822,7 @@
     scoringMode = $('offline-scoring-mode').value === 'territory' ? 'territory' : 'normal';
     bonusModeOn = $('offline-bonus-mode').checked;
     itemsModeOn = $('offline-items-mode').checked;
-    const opponent = $('offline-opponent').value;
+    const opponent = coopModeOn ? 'human' : $('offline-opponent').value;
     const cpuLevel = $('offline-cpu-level').value;
     roster = [];
     for (let i = 0; i < n; i++) {
@@ -797,15 +834,13 @@
         cpuLevel: isCpu ? cpuLevel : null,
       });
     }
+    if (coopModeOn) {
+      const coopLevel = $('offline-coop-cpu-level').value;
+      roster.push({ id: 'p' + n, name: `CPU (${CPU.LEVEL_LABEL[coopLevel]})`, connId: null, connected: true, cpuLevel: 'coop', coopLevel });
+    }
     startNewGameLocal();
   }
   function startNewGameLocal() {
-    if (roster.some((p) => p.cpuLevel)) {
-      cpuWordIndex = CPU.buildWordIndex([baseDict, customWords]);
-      cpuStartCharCounts = CPU.buildStartCharCounts([baseDict, customWords]);
-    } else {
-      cpuWordIndex = null; cpuStartCharCounts = null;
-    }
     const initialCells = WordChain.generateInitialCells(boardSize, placementMode, initialCount);
     const initialLetters = WordChain.randomLetters(initialCells.length);
     const obstacleCells = obstaclesOn ? WordChain.generateObstacleCells(boardSize, initialCells, obstacleCount) : [];
@@ -1104,7 +1139,7 @@
   function goToLobbyAsHost(rematch, hostName) {
     mode = 'online-host'; myId = 'p0'; phase = 'lobby';
     if (!rematch) roster = [{ id: 'p0', name: hostName || 'プレーヤー1', connId: null, connected: true }];
-    else roster = roster.filter((p) => p.connected);
+    else roster = roster.filter((p) => p.connected && p.cpuLevel !== 'coop'); // 協力モードのCPU席は次のロビーに持ち越さない
     hideAllModals();
     $('lobby-title').textContent = '相手を待っています (ホスト)';
     $('lobby-code-wrap').classList.remove('hidden');
@@ -1152,12 +1187,19 @@
     scoringMode = $('lobby-scoring-mode').value === 'territory' ? 'territory' : 'normal';
     bonusModeOn = $('lobby-bonus-mode').checked;
     itemsModeOn = $('lobby-items-mode').checked;
+    coopModeOn = $('lobby-coop-mode').checked;
+    coopCpuLevel = $('lobby-coop-cpu-level').value;
+    if (coopModeOn && n >= WordChain.MAX_PLAYERS) {
+      notice(`協力モードはCPUの1枠を確保するため、参加者は最大${WordChain.MAX_PLAYERS - 1}人までです。`);
+      return;
+    }
     phase = 'confirm';
     confirmAcks = new Set([myId]);
     Net.broadcast({
       t: 'config', size: boardSize, timeLimit: timeLimitSec, players: publicRoster(),
       placementMode, initialCount, obstacles: obstaclesOn, obstacleCount, scoringMode,
       bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
+      coopMode: coopModeOn, coopCpuLevel,
     });
     $('lobby-status').textContent = 'ゲストの確認を待っています...';
     $('btn-lobby-start').disabled = true;
@@ -1168,6 +1210,12 @@
     const need = activeIds();
     if (need.length < 2) { phase = 'lobby'; $('btn-lobby-start').disabled = false; renderLobby(); notice('参加者が足りなくなりました。'); return; }
     if (need.every((id) => confirmAcks.has(id))) {
+      if (coopModeOn && !roster.some((p) => p.cpuLevel === 'coop')) {
+        roster.push({
+          id: 'p' + roster.length, name: `CPU (${CPU.LEVEL_LABEL[coopCpuLevel]})`,
+          connId: null, connected: true, cpuLevel: 'coop', coopLevel: coopCpuLevel,
+        });
+      }
       const first = randInt(roster.length);
       const initialCells = WordChain.generateInitialCells(boardSize, placementMode, initialCount);
       const initialLetters = WordChain.randomLetters(initialCells.length);
@@ -1270,6 +1318,7 @@
       `<div class="row"><span>対戦モード</span><span>${m.scoringMode === 'territory' ? '陣取りモード' : '通常モード'}</span></div>` +
       `<div class="row"><span>ボーナスマス</span><span>${m.bonusMode ? 'あり' : 'なし'}</span></div>` +
       `<div class="row"><span>アイテム</span><span>${m.itemsMode ? 'あり' : 'なし'}</span></div>` +
+      `<div class="row"><span>協力モード</span><span>${m.coopMode ? `あり (CPU 1体 vs プレーヤー全員、強さ: ${CPU.LEVEL_LABEL[m.coopCpuLevel] || '普通'})` : 'なし'}</span></div>` +
       `<div class="row"><span>参加者 (${m.players.length}人)</span><span>${escapeHtml(names)}</span></div>`;
     showModal('modal-confirm');
   }
@@ -1586,6 +1635,18 @@
 
   // オフラインの対戦相手がCPUのときだけ強さの選択欄を表示
   $('offline-opponent').addEventListener('change', () => { $('offline-cpu-level-field').classList.toggle('hidden', $('offline-opponent').value !== 'cpu'); });
+  // 協力モード有効時は、通常の対戦相手選択(人間/CPU)を隠し、人数を最大3人(CPU分の1枠を確保)に制限する
+  $('offline-coop-mode').addEventListener('change', () => {
+    const on = $('offline-coop-mode').checked;
+    $('offline-opponent-field').classList.toggle('hidden', on);
+    $('offline-cpu-level-field').classList.toggle('hidden', on || $('offline-opponent').value !== 'cpu');
+    $('offline-coop-cpu-level-field').classList.toggle('hidden', !on);
+    if (on && Number($('offline-count').value) > WordChain.MAX_PLAYERS - 1) $('offline-count').value = String(WordChain.MAX_PLAYERS - 1);
+  });
+  // オンラインロビーで協力モードを有効にしたときだけ、CPUの強さ選択欄を表示
+  $('lobby-coop-mode').addEventListener('change', () => {
+    $('lobby-coop-cpu-level-field').classList.toggle('hidden', !$('lobby-coop-mode').checked);
+  });
 
   // 音量
   $('vol-bgm').addEventListener('input', (e) => { const v = Number(e.target.value); $('vol-bgm-label').textContent = v + '%'; Sound.setBgmVolume(v / 100); });

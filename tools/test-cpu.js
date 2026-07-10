@@ -67,5 +67,46 @@ assert(wordIndex.get('い').get(2).includes('いぬ') && wordIndex.get('い').ge
   }
 }
 
+// ---- chooseCoopMove: 協力モード専用ロジック ----
+{
+  const g = newG();
+  const move = CPU.chooseCoopMove(g, wordIndex, startChars, startCharCounts, 'strongest');
+  assert(move !== null, '協力モードCPUは手を返す');
+  const moves = CPU.enumerateMoves(g, wordIndex, startChars);
+  assert(moves.some((m) => m.word === move.word && m.r === move.r && m.c === move.c && m.dir === move.dir), '協力モードCPUが選ぶ手は列挙された候補の中にある');
+}
+{
+  const g = newG();
+  const emptyIndex = new Map();
+  const move = CPU.chooseCoopMove(g, emptyIndex, startChars, startCharCounts, 'strongest');
+  assert(move === null, '協力モードCPUも置ける辞書語が無ければnull(パス)を返す');
+}
+{
+  // 「あいう」(3文字,終端「う」=続けやすい=count高) と「あき」(2文字,終端「き」=続けにくい=count0) では、
+  // 妨害の重みが十分大きい強さ(strong以上)なら、終端の続けにくさの差が大きい短い「あき」の方が選ばれる
+  // (単純な最長優先とは異なる)。逆に重みが小さい「弱い」は長さだけで「あいう」を選ぶ。
+  const coopDict = new Set(['あいう', 'あき', 'うさぎ', 'うみ', 'うた', 'うわさ', 'うでまえ']);
+  const coopIndex = CPU.buildWordIndex([coopDict]);
+  const coopCounts = CPU.buildStartCharCounts([coopDict]);
+  const coopStartChars = new Set([...coopDict].map((w) => [...w][0]));
+  coopStartChars.add('き'); // 「き」から始まる単語は辞書の別の場所にある想定(このカウント対象には含まれない)
+  const g = WC.newGame({ size: 8, initialCells: [[3, 3]], initialLetters: ['あ'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
+  const moveStrongest = CPU.chooseCoopMove(g, coopIndex, coopStartChars, coopCounts, 'strongest');
+  assert(moveStrongest !== null, '協力モードCPU(最強・重み付けテスト)は手を返す');
+  assert(moveStrongest.word === 'あき', '協力モードCPU(最強)は、終端が続けにくい文字なら短い単語でも優先する(「あいう」より「あき」)');
+  const moveWeak = CPU.chooseCoopMove(g, coopIndex, coopStartChars, coopCounts, 'weak');
+  assert(moveWeak !== null, '協力モードCPU(弱い・重み付けテスト)は手を返す');
+  assert(moveWeak.word === 'あいう', '協力モードCPU(弱い)は妨害の重みが0のため、単純に長い「あいう」を選ぶ');
+}
+{
+  // 強さ('weak'|'normal'|'strong'|'strongest')ごとに常に有効な手を返すこと、
+  // および未知の値・省略時はエラーにならず(strongest扱いで)手を返すことを確認
+  const g = newG();
+  for (const level of [...CPU.LEVELS, undefined, 'unknown-level']) {
+    const move = CPU.chooseCoopMove(g, wordIndex, startChars, startCharCounts, level);
+    assert(move !== null, `協力モードCPU(強さ:${level})は手を返す`);
+  }
+}
+
 console.log(`\n結果: ${passed} 件成功 / ${failed} 件失敗`);
 process.exit(failed > 0 ? 1 : 0);

@@ -579,6 +579,8 @@ input[type="range"]::-webkit-slider-thumb {
 .result-detail .rank-name.p2 { color: var(--p2); }
 .result-detail .rank-name.p3 { color: var(--p3); }
 .result-detail .rank-score { margin-left: auto; font-weight: bold; }
+.result-detail .coop-summary-row { font-size: 18px; border-bottom: 2px solid var(--border); }
+.result-detail .coop-summary-row.winner { color: var(--gold); }
 
 /* ---------- 設定: 音量セクション ---------- */
 .settings-section {

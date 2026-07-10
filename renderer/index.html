@@ -143,6 +143,19 @@
           <input id="lobby-items-mode" type="checkbox">
           <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を試合中1回ずつ使用可)</span>
         </label>
+        <label class="field checkbox-field">
+          <input id="lobby-coop-mode" type="checkbox">
+          <span>協力モードを有効にする (CPU 1体 vs 参加者全員。CPU分の1枠を確保するため参加者は最大3人まで)</span>
+        </label>
+        <label id="lobby-coop-cpu-level-field" class="field hidden">
+          <span>協力モードCPUの強さ</span>
+          <select id="lobby-coop-cpu-level">
+            <option value="weak">弱い</option>
+            <option value="normal" selected>普通</option>
+            <option value="strong">強い</option>
+            <option value="strongest">最強</option>
+          </select>
+        </label>
         <p id="lobby-hint" class="muted"></p>
       </div>
 
@@ -160,7 +173,20 @@
     <div class="center-box">
       <h2>オフライン対戦</h2>
       <p class="muted">1台のPCで、2〜4人が交代で操作します。CPUと対戦することもできます。</p>
-      <label class="field">
+      <label class="field checkbox-field">
+        <input id="offline-coop-mode" type="checkbox">
+        <span>協力モードを有効にする (CPU 1体 vs 参加者全員。CPU分の1枠を確保するため人数は最大3人まで)</span>
+      </label>
+      <label id="offline-coop-cpu-level-field" class="field hidden">
+        <span>協力モードCPUの強さ</span>
+        <select id="offline-coop-cpu-level">
+          <option value="weak">弱い</option>
+          <option value="normal" selected>普通</option>
+          <option value="strong">強い</option>
+          <option value="strongest">最強</option>
+        </select>
+      </label>
+      <label id="offline-opponent-field" class="field">
         <span>対戦相手</span>
         <select id="offline-opponent">
           <option value="human" selected>人間 (交代プレイ)</option>

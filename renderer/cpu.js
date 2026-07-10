@@ -142,8 +142,46 @@ const CPU = (() => {
     }
   }
 
+  // 協力モード専用CPUの強さ別バランス調整値: 単語の長さ1文字分を、終端文字の
+  // 「続けやすさ(0〜1に正規化)」何割分と釣り合わせるか。大きいほど、自分の得点
+  // よりチーム(人間側)を妨害する終端文字を優先するようになる(=CPUが強くなる)。
+  // 「弱い」は0(=単に長い単語を選ぶだけで、チームを妨害する意図を持たない)。
+  const COOP_OBSTRUCTION_WEIGHT = { weak: 0, normal: 1, strong: 2, strongest: 4 };
+
+  /** 辞書上、最も多くの単語の先頭になっているかなの出現数 (正規化の基準) */
+  function maxStartCharCount(startCharCounts) {
+    let max = 1;
+    for (const v of startCharCounts.values()) if (v > max) max = v;
+    return max;
+  }
+
+  /**
+   * 協力モード(CPU vs プレーヤー全員)専用の手選び。既存の強さ別ロジック(chooseMove)とは
+   * 別の評価式で、「自分の得点(文字数)を伸ばす」ことと「終端の文字をチームが続けにくい
+   * ものにする」ことを1つのスコアに合成し、最も高いものを選ぶ(同点はランダム)。
+   * level: 'weak' | 'normal' | 'strong' | 'strongest' (省略・未知の値は strongest 扱い)。
+   * 強いほど妨害の重みが増し、続けにくさが十分大きければ短い単語をあえて選ぶ
+   * ようになる。弱いほど単語の長さだけで選ぶ(妨害を意図しない)傾向になる。
+   */
+  function chooseCoopMove(game, wordIndex, startChars, startCharCounts, level) {
+    const moves = enumerateMoves(game, wordIndex, startChars);
+    if (moves.length === 0) return null;
+    const weight = level in COOP_OBSTRUCTION_WEIGHT ? COOP_OBSTRUCTION_WEIGHT[level] : COOP_OBSTRUCTION_WEIGHT.strongest;
+    const maxCount = maxStartCharCount(startCharCounts);
+    let bestScore = -Infinity;
+    let ties = [];
+    for (const m of moves) {
+      const last = [...m.word][m.len - 1];
+      const obstruction = (startCharCounts.get(last) || 0) / maxCount;
+      const score = m.len - weight * obstruction;
+      if (score > bestScore + 1e-9) { bestScore = score; ties = [m]; }
+      else if (Math.abs(score - bestScore) <= 1e-9) ties.push(m);
+    }
+    return pickRandom(ties);
+  }
+
   return {
-    LEVELS, LEVEL_LABEL, buildWordIndex, buildStartCharCounts, enumerateMoves, chooseMove,
+    LEVELS, LEVEL_LABEL, buildWordIndex, buildStartCharCounts, enumerateMoves, chooseMove, chooseCoopMove,
   };
 })();
 

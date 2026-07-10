@@ -57,6 +57,7 @@ const Net = (() => {
     return Number.isInteger(count) && count >= 1 && count <= maxObstacleCount(size);
   }
   function scoringModeOk(v) { return v === 'normal' || v === 'territory'; }
+  function coopLevelOk(v) { return v === 'weak' || v === 'normal' || v === 'strong' || v === 'strongest'; }
   function cellOrNullOk(v) {
     return v === null || v === undefined || (Array.isArray(v) && v.length === 2
       && Number.isInteger(v[0]) && v[0] >= 0 && v[0] < 15
@@ -97,7 +98,8 @@ const Net = (() => {
       && typeof m.obstacles === 'boolean' && (!m.obstacles || obstacleCountOk(m.obstacleCount, m.size))
       && scoringModeOk(m.scoringMode)
       && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
-      && typeof m.itemsMode === 'boolean',
+      && typeof m.itemsMode === 'boolean' && typeof m.coopMode === 'boolean'
+      && (!m.coopMode || coopLevelOk(m.coopCpuLevel)),
     'begin': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && cellsOk(m.initialCells, m.size, 1, 10)
       && Array.isArray(m.initialLetters) && m.initialLetters.length === m.initialCells.length
@@ -154,7 +156,8 @@ const Net = (() => {
   function rosterOk(a) {
     return Array.isArray(a) && a.length >= 1 && a.length <= 4
       && a.every((p) => p && typeof p.id === 'string' && p.id.length <= 8
-        && typeof p.name === 'string' && p.name.length <= 24);
+        && typeof p.name === 'string' && p.name.length <= 24
+        && (p.cpuLevel === undefined || p.cpuLevel === null || p.cpuLevel === 'coop'));
   }
 
   let peer = null;
