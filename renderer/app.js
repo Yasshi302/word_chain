@@ -614,8 +614,11 @@
 
   // 承認 (権威)
   function startApproval(proposerId, move) {
-    const need = new Set(activeIds().filter((id) => id !== proposerId));
+    // CPU(協力モード等)は承認の投票をしない(できない)ため、必要な承認者から除外する
+    // (除外しないと、CPUの票が永遠に来ずゲームが進行不能になる)
+    const need = new Set(activeIds().filter((id) => id !== proposerId && !entryOf(id).cpuLevel));
     approval = { proposerId, move, word: move.word, need, votes: new Map() };
+    if (need.size === 0) { finishApproval(true); return; } // 投票できる相手がいない(切断等)場合は自動承認する
     pauseTimer();
     if (mode === 'online-host') {
       Net.broadcast({ t: 'timer', remainingMs: timer.remaining, running: false });
