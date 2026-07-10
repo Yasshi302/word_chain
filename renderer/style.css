@@ -249,6 +249,11 @@ h2 { margin-top: 0; }
 .cell.selectable { border-color: var(--accent); cursor: pointer; }
 .cell.selectable:hover { background: #2f3a52; }
 .cell.selected { border-color: var(--ok); box-shadow: 0 0 10px rgba(111, 214, 138, .45); }
+/* アイテムの対象マス選択中: クリア(緑=解除対象のお邪魔マス) / ブロック(赤=設置先の未入力マス) */
+.cell.item-target-clear { border-color: var(--ok); box-shadow: 0 0 10px rgba(111, 214, 138, .5); cursor: pointer; }
+.cell.item-target-clear:hover { background: #2f4a3a; }
+.cell.item-target-block { border-color: #e05a5a; box-shadow: 0 0 10px rgba(224, 90, 90, .5); cursor: pointer; }
+.cell.item-target-block:hover { background: #4a2f2f; }
 .cell.just-placed { animation: pop .35s ease; }
 .cell.placing { animation: letter-place .42s ease both; z-index: 6; }
 
@@ -277,7 +282,7 @@ h2 { margin-top: 0; }
   animation: bonus-pulse 1.6s ease-in-out infinite;
 }
 .cell.bonus::after {
-  content: '×2';
+  content: attr(data-bonus-mult);
   position: absolute;
   top: 2px;
   right: 4px;

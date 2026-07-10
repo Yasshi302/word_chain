@@ -137,7 +137,11 @@
         </label>
         <label class="field checkbox-field">
           <input id="lobby-bonus-mode" type="checkbox">
-          <span>ボーナスマスを有効にする (誰かの得点が全マスの1/3を超えると、2倍点のマスが出現)</span>
+          <span>ボーナスマスを有効にする (最下位のプレーヤーの手番に、差が大きいほど高確率で2〜3倍点のマスが出現)</span>
+        </label>
+        <label class="field checkbox-field">
+          <input id="lobby-items-mode" type="checkbox">
+          <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を試合中1回ずつ使用可)</span>
         </label>
         <p id="lobby-hint" class="muted"></p>
       </div>
@@ -229,7 +233,11 @@
       </label>
       <label class="field checkbox-field">
         <input id="offline-bonus-mode" type="checkbox">
-        <span>ボーナスマスを有効にする (誰かの得点が全マスの1/3を超えると、2倍点のマスが出現)</span>
+        <span>ボーナスマスを有効にする (最下位のプレーヤーの手番に、差が大きいほど高確率で2〜3倍点のマスが出現)</span>
+      </label>
+      <label class="field checkbox-field">
+        <input id="offline-items-mode" type="checkbox">
+        <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を試合中1回ずつ使用可)</span>
       </label>
       <div class="menu-buttons">
         <button id="btn-offline-start" class="btn primary">対戦を始める</button>
@@ -306,6 +314,11 @@
             <button class="dir-btn" data-dir="6">↓</button>
             <button class="dir-btn" data-dir="7">↘</button>
           </div>
+        </div>
+        <div id="item-buttons" class="game-buttons hidden">
+          <button id="btn-item-clear" class="btn">クリア</button>
+          <button id="btn-item-block" class="btn">ブロック</button>
+          <button id="btn-item-cancel" class="btn hidden">対象選択をやめる</button>
         </div>
         <div class="game-buttons">
           <button id="btn-pass" class="btn warn" disabled>パスする</button>

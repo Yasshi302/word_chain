@@ -62,6 +62,13 @@ const Net = (() => {
       && Number.isInteger(v[0]) && v[0] >= 0 && v[0] < 15
       && Number.isInteger(v[1]) && v[1] >= 0 && v[1] < 15);
   }
+  function bonusMultiplierOk(v) { return v === null || v === undefined || v === 2 || v === 3; }
+  function coordOk(v) { return Number.isInteger(v) && v >= 0 && v < 15; }
+  function itemNameOk(v) { return v === 'clear' || v === 'block'; }
+  function itemsInventoryOk(v) {
+    return v && typeof v === 'object' && Object.values(v).every((inv) => inv && typeof inv === 'object'
+      && typeof inv.clear === 'boolean' && typeof inv.block === 'boolean');
+  }
 
   // ゲーム系メッセージ種別ごとの検証 (認証系は別処理)。
   const VALIDATORS = {
@@ -77,6 +84,7 @@ const Net = (() => {
     'rematch-vote': (m) => typeof m.ok === 'boolean',
     'leave': () => true,
     'updating': () => true,
+    'use-item': (m) => itemNameOk(m.item) && coordOk(m.r) && coordOk(m.c),
     // --- host -> guest ---
     'welcome': (m) => typeof m.you === 'string' && m.you.length <= 8,
     'lobby': (m) => Array.isArray(m.players) && m.players.length <= 4,
@@ -88,7 +96,8 @@ const Net = (() => {
       && placementOk(m.placementMode) && initialCountOk(m.initialCount, m.placementMode)
       && typeof m.obstacles === 'boolean' && (!m.obstacles || obstacleCountOk(m.obstacleCount, m.size))
       && scoringModeOk(m.scoringMode)
-      && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean',
+      && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
+      && typeof m.itemsMode === 'boolean',
     'begin': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && cellsOk(m.initialCells, m.size, 1, 10)
       && Array.isArray(m.initialLetters) && m.initialLetters.length === m.initialCells.length
@@ -96,15 +105,18 @@ const Net = (() => {
       && cellsOk(m.obstacleCells, m.size, 0, maxObstacleCount(m.size))
       && scoringModeOk(m.scoringMode)
       && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
+      && typeof m.itemsMode === 'boolean'
       && Number.isInteger(m.first) && m.first >= 0 && m.first < 4,
     'turn': (m) => typeof m.by === 'string' && Number.isFinite(m.remainingMs)
-      && cellOrNullOk(m.bonusCell)
+      && cellOrNullOk(m.bonusCell) && bonusMultiplierOk(m.bonusMultiplier)
       && (m.obstacleCells === undefined || cellsOk(m.obstacleCells, 15, 0, maxObstacleCount(15))),
     'timer': (m) => Number.isFinite(m.remainingMs) && typeof m.running === 'boolean',
     'move-applied': (m) => typeof m.by === 'string'
       && Number.isInteger(m.r) && Number.isInteger(m.c) && Number.isInteger(m.dir)
       && typeof m.word === 'string' && HIRA_WORD.test(m.word),
     'pass-applied': (m) => typeof m.by === 'string',
+    'item-applied': (m) => typeof m.by === 'string' && itemNameOk(m.item) && coordOk(m.r) && coordOk(m.c),
+    'item-rejected': (m) => m.reason === undefined || typeof m.reason === 'string',
     'approve-start': (m) => typeof m.by === 'string' && typeof m.word === 'string' && HIRA_WORD.test(m.word),
     'approve-progress': (m) => Number.isFinite(m.got) && Number.isFinite(m.need),
     'approve-end': () => true,
@@ -120,8 +132,9 @@ const Net = (() => {
       && m.scores && typeof m.scores === 'object' && m.active && typeof m.active === 'object'
       && rosterOk(m.players) && Number.isInteger(m.turnIdx)
       && Array.isArray(m.used) && Array.isArray(m.history) && typeof m.territoryMode === 'boolean'
-      && typeof m.bonusMode === 'boolean' && cellOrNullOk(m.bonusCell)
-      && typeof m.obstacleMove === 'boolean',
+      && typeof m.bonusMode === 'boolean' && cellOrNullOk(m.bonusCell) && bonusMultiplierOk(m.bonusMultiplier)
+      && typeof m.obstacleMove === 'boolean'
+      && typeof m.itemsMode === 'boolean' && (!m.itemsMode || itemsInventoryOk(m.items)),
     'rematch-lobby': () => true,
     'rematch-progress': (m) => Number.isFinite(m.got) && Number.isFinite(m.need),
     'hb': () => true,

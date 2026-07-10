@@ -239,40 +239,119 @@ assert(WC.normalizeSmallKana('がっこう') === 'がつこう', '促音を直�
 // ---- 時間選択肢 (無制限=0を含む) ----
 assert(JSON.stringify(WC.TIME_CHOICES) === JSON.stringify([10, 30, 60, 120, 180, 240, 300, 0]), '入力時間の選択肢 (2分・4分を追加)');
 
-// ---- ボーナスマス: 誰かの得点が全マス数の1/3を超えると、2倍点のマスが出現する ----
+// ---- ボーナスマス(逆転support): 最下位のプレーヤーの手番だけ、得点差が大きいほど高確率で出現し、2〜3倍点になる ----
 {
   const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
   assert(g.bonusMode === true, 'bonusModeフラグがgameに反映される');
-  assert(g.bonusCell === null, '初期状態ではボーナスマスは無い');
-  assert(WC.bonusThresholdMet(g) === false, '得点0では発動条件を満たさない');
-  assert(WC.pickBonusCell(g) === null, '発動条件未達ならボーナスマスは選ばれない (null)');
-  g.scores.p0 = 22; // 8x8=64マスの1/3(約21.33)を超える
-  assert(WC.bonusThresholdMet(g) === true, '誰か1人が全マス数の1/3を超えると発動条件を満たす');
-  const cell = WC.pickBonusCell(g);
-  assert(cell !== null, '発動条件を満たせばボーナスマスが選ばれる');
+  assert(g.bonusCell === null && g.bonusMultiplier === null, '初期状態ではボーナスマスは無い');
+  assert(WC.bonusAppearProbability(g) === 0, '同点(差0)では出現確率は0');
+  assert(WC.pickBonusCell(g) === null, '確率0ならボーナスマスは選ばれない (null)');
+}
+{
+  // 手番(p0)が最下位でない場合は確率0
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
+  g.scores.p0 = 10; g.scores.p1 = 0; // p1の方が少ない = p0は最下位ではない
+  assert(WC.bonusAppearProbability(g) === 0, '手番のプレーヤーが最下位でなければ確率0');
+}
+{
+  // 手番(p0)が最下位、かつ差が大きいほど確率が上がる (8x8=64マス、割る数=4→スケール16)
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
+  g.scores.p0 = 0; g.scores.p1 = 8; // 差8 → 8/16 = 0.5
+  assert(WC.bonusAppearProbability(g) === 0.5, '得点差8(スケール16の半分)なら確率0.5');
+  g.scores.p1 = 40; // 差40 → 40/16=2.5 だが上限0.75でクランプ
+  assert(WC.bonusAppearProbability(g) === 0.75, '得点差が大きくても確率は上限0.75まで');
+}
+{
+  // 高確率(0.75)のもとで何度も抽選し、当たり/外れ両方が起き、当たった時の中身が正しいことを確認
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
+  g.scores.p0 = 0; g.scores.p1 = 40;
   const reachable = WC.reachableEmptyCells(g);
-  assert(reachable.some(([r, c]) => r === cell[0] && c === cell[1]), 'ボーナスマスは開始セルから到達可能な未入力マスの中から選ばれる');
+  let hits = 0, misses = 0;
+  for (let i = 0; i < 300; i++) {
+    const r = WC.pickBonusCell(g);
+    if (r === null) { misses++; continue; }
+    hits++;
+    assert(r.multiplier === 2 || r.multiplier === 3, 'ボーナスの倍率は2か3のいずれか');
+    assert(reachable.some(([rr, cc]) => rr === r.cell[0] && cc === r.cell[1]), 'ボーナスマスは開始セルから到達可能な未入力マスの中から選ばれる');
+  }
+  assert(hits > 0, '確率0.75なら300回のうち何回かは当たる');
+  assert(misses > 0, '確率0.75(<1)なら300回のうち何回かは外れる');
 }
 {
   // (3,3)あ(既存/初期) →(3,4)か(既存/初期,一致) →(3,5)り(新規) の3マスの単語。ボーナスマスを3マス目に置く
   const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
-  g.bonusCell = [3, 5];
+  g.bonusCell = [3, 5]; g.bonusMultiplier = 2;
   WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
-  assert(g.scores.p0 === 6, 'ボーナスマスを通った単語は得点が2倍になる (3文字→6点)');
+  assert(g.scores.p0 === 6, 'ボーナスマス(2倍)を通った単語は得点が2倍になる (3文字→6点)');
   assert(g.history[g.history.length - 1].points === 6, '履歴のpointsもボーナス反映後の実際の得点(6)になる (単語の文字数そのままではない)');
 }
 {
   const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
-  g.bonusCell = [5, 5]; // 単語が通らない位置
+  g.bonusCell = [3, 5]; g.bonusMultiplier = 3;
+  WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
+  assert(g.scores.p0 === 9, 'ボーナスマス(3倍)を通った単語は得点が3倍になる (3文字→9点)');
+}
+{
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, bonusMode: true });
+  g.bonusCell = [5, 5]; g.bonusMultiplier = 2; // 単語が通らない位置
   WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
   assert(g.scores.p0 === 3, 'ボーナスマスを通らない単語は通常通りの得点のまま');
 }
 {
-  // bonusModeを付けなければ、bonusCellが(誤って)設定されていても2倍にならない
+  // bonusModeを付けなければ、bonusCellが(誤って)設定されていても倍にならない
   const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
-  g.bonusCell = [3, 5];
+  g.bonusCell = [3, 5]; g.bonusMultiplier = 2;
   WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
-  assert(g.scores.p0 === 3, 'bonusMode無効ならbonusCellがあっても2倍にならない');
+  assert(g.scores.p0 === 3, 'bonusMode無効ならbonusCellがあっても倍にならない');
+}
+
+// ---- アイテム: クリア(お邪魔マス解除)・ブロック(お邪魔マス設置) をそれぞれ試合中1回まで使える ----
+{
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    obstacleCells: [[0, 0]], itemsMode: true,
+  });
+  assert(g.itemsMode === true, 'itemsModeフラグがgameに反映される');
+  assert(g.items.p0.clear === true && g.items.p0.block === true, '各プレーヤーは各アイテムを1回ずつ未使用の状態で持つ');
+
+  // クリア: 既存のお邪魔マス(0,0)を解除できる
+  let res = WC.useItem(g, 'p0', 'clear', 0, 0);
+  assert(res.ok === true, 'クリアで既存のお邪魔マスを解除できる');
+  assert(g.blocked[0][0] === false, '解除後はそのマスがお邪魔マスでなくなる');
+  assert(g.items.p0.clear === false, 'クリア使用後はp0のクリアが使用済みになる');
+
+  res = WC.useItem(g, 'p0', 'clear', 1, 1);
+  assert(res.ok === false, 'クリアは1人1回までなので、2回目は失敗する');
+
+  // ブロック: 未入力マス(初期文字周囲2マス以外)に新しくお邪魔マスを配置できる
+  res = WC.useItem(g, 'p0', 'block', 0, 0);
+  assert(res.ok === true, 'ブロックで未入力マスに新しいお邪魔マスを配置できる');
+  assert(g.blocked[0][0] === true, '配置後はそのマスがお邪魔マスになる');
+  assert(g.items.p0.block === false, 'ブロック使用後はp0のブロックが使用済みになる');
+
+  res = WC.useItem(g, 'p0', 'block', 1, 1);
+  assert(res.ok === false, 'ブロックも1人1回までなので、2回目は失敗する');
+
+  // p1はp0とは独立してアイテムを持つ
+  res = WC.useItem(g, 'p1', 'clear', 0, 0);
+  assert(res.ok === true, '他のプレーヤーのアイテム使用状況は独立している');
+}
+{
+  // ブロックは初期文字マスの周囲2マス以内には配置できない
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true,
+  });
+  const res = WC.useItem(g, 'p0', 'block', 3, 5); // 初期文字マスの周囲2マス以内
+  assert(res.ok === false, 'ブロックは初期文字マスの周囲2マス以内には配置できない');
+}
+{
+  // itemsModeが無効なら使用できない
+  const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
+  const res = WC.useItem(g, 'p0', 'clear', 0, 0);
+  assert(res.ok === false, 'itemsModeが無効ならアイテムは使用できない');
 }
 
 // ---- お邪魔マス移動: 未入力マスが盤面の半分になるまで、毎ターンランダムに再配置される ----
