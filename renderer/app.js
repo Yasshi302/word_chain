@@ -652,7 +652,9 @@
     refreshAll();
     if (game.over) { onGameOver(); return; }
     // 「ブロック」使用確認オファーが開いている間は、新しい手番のタイマーを開始せず
-    // (相手ターン開始時に時計を止める)、オファーが解決されるまで待つ
+    // (相手ターン開始時に時計を止める)、オファーが解決されるまで待つ。
+    // ここで明示的にタイマーを止めないと、直前の手番の古いタイマーが動いたままになり、
+    // オファー中に誤って時間切れ(相手の自動パス)が発生してしまう。
     if (isAuthority() && game.pendingBlockOffer) {
       const holderId = game.pendingBlockOffer.playerId;
       if (entryOf(holderId) && entryOf(holderId).cpuLevel) {
@@ -660,7 +662,11 @@
         authorityDeclineBlockOffer(holderId);
         return;
       }
-      if (mode === 'online-host') Net.broadcast({ t: 'block-offer', playerId: holderId });
+      pauseTimer();
+      if (mode === 'online-host') {
+        Net.broadcast({ t: 'timer', remainingMs: timer.remaining, running: false });
+        Net.broadcast({ t: 'block-offer', playerId: holderId });
+      }
       showBlockOfferModal(holderId);
       return;
     }
@@ -797,7 +803,12 @@
     addHistoryItem(byId, item);
     renderHazards();
     itemTargetMode = null;
-    if (item === 'clear') stopClearCountdownUI();
+    if (item === 'clear') {
+      stopClearCountdownUI();
+      // カウントダウン中に止めていた入力時間を再開する
+      resumeTimer();
+      if (mode === 'online-host') Net.broadcast({ t: 'timer', remainingMs: timer.remaining, running: true });
+    }
     renderItemTargets();
     updateItemButtons();
     if (mode === 'online-host') Net.broadcast({ t: 'item-applied', by: byId, item, r, c });
@@ -842,7 +853,21 @@
       setStatus(`${nameOf(playerId)}が「クリア」を使用中...`);
     }
     startClearCountdownUI(res.expiresAt);
-    if (mode === 'online-host') Net.broadcast({ t: 'item-window-start', by: playerId, item: 'clear', expiresAt: res.expiresAt });
+    // カウントダウン中は入力時間を止める(成功時・猶予切れ時のいずれでも再開する)
+    pauseTimer();
+    if (mode === 'online-host') {
+      Net.broadcast({ t: 'timer', remainingMs: timer.remaining, running: false });
+      Net.broadcast({ t: 'item-window-start', by: playerId, item: 'clear', expiresAt: res.expiresAt });
+    }
+    setTimeout(resumeTimerAfterClearWindow, WordChain.CLEAR_ITEM_WINDOW_MS);
+  }
+  // 「クリア」の使用受付の猶予が切れた場合(対象を選べなかった場合)も入力時間を再開する。
+  // 猶予内に成功していた場合(authorityUseItem側で既に再開済み)に再度呼ばれても、
+  // resumeTimer()は何度呼んでも安全(既に動いている場合は無害)なので問題ない。
+  function resumeTimerAfterClearWindow() {
+    if (!isAuthority() || !game || game.over) return;
+    resumeTimer();
+    if (mode === 'online-host') Net.broadcast({ t: 'timer', remainingMs: timer.remaining, running: true });
   }
   function startClearCountdownUI(expiresAt) {
     const el = $('clear-countdown');
