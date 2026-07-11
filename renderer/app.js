@@ -808,6 +808,8 @@
       // カウントダウン中に止めていた入力時間を再開する
       resumeTimer();
       if (mode === 'online-host') Net.broadcast({ t: 'timer', remainingMs: timer.remaining, running: true });
+      // 方向パネル・単語入力モーダルが既に開いていた場合、解除により伸びた経路を反映する
+      refreshSelectionAfterClear();
     }
     renderItemTargets();
     updateItemButtons();
@@ -829,7 +831,10 @@
     addHistoryItem(m.by, m.item);
     renderHazards();
     itemTargetMode = null;
-    if (m.item === 'clear') stopClearCountdownUI();
+    if (m.item === 'clear') {
+      stopClearCountdownUI();
+      refreshSelectionAfterClear();
+    }
     renderItemTargets();
     updateItemButtons();
   }
@@ -1013,7 +1018,10 @@
     document.querySelectorAll('.dir-btn').forEach((b) => { b.disabled = !WordChain.canPlaceDir(game, r, c, Number(b.dataset.dir)); });
     $('dir-panel').classList.remove('hidden');
   }
-  function openWordModal() {
+  // #word-patternを(再)構築し、経路の長さ・セル一覧・既存文字(ワイルドカード対象候補)の
+  // 位置一覧を返す。お邪魔マスがクリアされて経路が伸びた場合などに再計算するためopenWordModal
+  // から切り出してある。
+  function computeWordPatternInfo() {
     const { r, c, dir } = selection;
     const L = WordChain.maxLen(game, r, c, dir);
     const cells = WordChain.rayCells(r, c, dir, L);
@@ -1028,6 +1036,11 @@
       pat.appendChild(p);
       if (ch) fixedIndices.push(i);
     }
+    return { L, cells, fixedIndices };
+  }
+  function openWordModal() {
+    const { r, c } = selection;
+    const { L, cells, fixedIndices } = computeWordPatternInfo();
     $('word-hint').textContent = `「${game.board[r][c]}」から始まる 2〜${L} 文字。文字がある位置はその文字と一致させてください。`;
     const inp = $('word-input');
     inp.value = ''; inp.maxLength = L * 3; inp.dataset.maxHiragana = String(L); inp.disabled = false;
@@ -1038,6 +1051,23 @@
     setupWildcardField(fixedIndices, cells);
     showModal('modal-word');
     setTimeout(() => inp.focus(), 50);
+  }
+  // 方向選択パネル・単語入力モーダルが開いたままの状態で「クリア」によりお邪魔マスが
+  // 解除され経路が伸びた場合、選択中の内容(入力済みの文字など)は保ったまま表示だけを
+  // 最新の盤面に合わせて更新する。
+  function refreshSelectionAfterClear() {
+    if (selection.r !== null && !$('dir-panel').classList.contains('hidden')) {
+      document.querySelectorAll('.dir-btn').forEach((b) => {
+        b.disabled = !WordChain.canPlaceDir(game, selection.r, selection.c, Number(b.dataset.dir));
+      });
+    }
+    if (selection.dir !== null && !$('modal-word').classList.contains('hidden')) {
+      const { r, c } = selection;
+      const { L } = computeWordPatternInfo();
+      $('word-hint').textContent = `「${game.board[r][c]}」から始まる 2〜${L} 文字。文字がある位置はその文字と一致させてください。`;
+      $('word-input').maxLength = L * 3;
+      $('word-input').dataset.maxHiragana = String(L);
+    }
   }
   // ワイルドカードを所持していて、経路上に既存の文字(通常は完全一致が必須なマス)が
   // あるときだけ、書き換え対象を選ぶセレクトを表示する。
