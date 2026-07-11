@@ -1,6 +1,6 @@
 {
   "name": "word-chain",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "ワードチェイン - 8x8盤面で単語をつなげて文字数を競う対戦ゲーム",
   "main": "main.js",
   "author": "yasshi",
@@ -12,7 +12,7 @@
   "scripts": {
     "start": "electron .",
     "build-dict": "node tools/build-dict.js",
-    "test": "node tools/test-game.js && node tools/test-dict.js && node tools/test-cpu.js && node tools/test-updater.js",
+    "test": "node tools/test-game.js && node tools/test-dict.js && node tools/test-cpu.js && node tools/test-updater.js && node tools/test-friend-store.js",
     "dist": "electron-builder --win portable",
     "release": "node tools/release.js"
   },
@@ -44,6 +44,7 @@
       "main.js",
       "preload.js",
       "dict-store.js",
+      "friend-store.js",
       "updater.js",
       "tools/updater-util.js",
       "renderer/**",

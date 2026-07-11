@@ -12,11 +12,15 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const dictStore = require('./dict-store');
+const friendStore = require('./friend-store');
 const updater = require('./updater');
 const pkg = require('./package.json');
 
 function customWordsPath() {
   return path.join(app.getPath('userData'), 'custom-words.json');
+}
+function friendsPath() {
+  return path.join(app.getPath('userData'), 'friends.json');
 }
 
 const loadCustomDict = () => dictStore.load(customWordsPath());
@@ -74,6 +78,13 @@ app.whenReady().then(() => {
   // マージ結果でカスタム辞書を置き換える (更新日も指定)
   ipcMain.handle('set-custom-dict', (_e, payload) =>
     dictStore.setDict(customWordsPath(), payload));
+
+  // ---------------- フレンド ----------------
+  ipcMain.handle('get-friend-data', () => friendStore.load(friendsPath()));
+  ipcMain.handle('add-friend', (_e, friendId, name) =>
+    friendStore.addFriend(friendsPath(), friendId, name));
+  ipcMain.handle('remove-friend', (_e, friendId) =>
+    friendStore.removeFriend(friendsPath(), friendId));
 
   // ---------------- 自動更新 ----------------
   // 取得元は常にGitHub Releases (package.json の repository)。

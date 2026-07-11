@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld('api', {
   removeCustomWord: (word) => ipcRenderer.invoke('remove-custom-word', word),
   setCustomDict: (payload) => ipcRenderer.invoke('set-custom-dict', payload),
 
+  // フレンド
+  getFriendData: () => ipcRenderer.invoke('get-friend-data'),
+  addFriend: (friendId, name) => ipcRenderer.invoke('add-friend', friendId, name),
+  removeFriend: (friendId) => ipcRenderer.invoke('remove-friend', friendId),
+
   // 自動更新 (取得元は常にGitHub Releases。main.js/updater.js参照)
   checkUpdate: () => ipcRenderer.invoke('check-update'),
   downloadUpdate: (info) => ipcRenderer.invoke('download-update', info),

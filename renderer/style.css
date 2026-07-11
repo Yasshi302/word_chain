@@ -176,6 +176,29 @@ h2 { margin-top: 0; }
   color: var(--muted);
   border-bottom: none;
 }
+
+#friend-list, #lobby-friend-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-cell);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+#friend-list li, #lobby-friend-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 15px;
+}
+#friend-list li:last-child, #lobby-friend-list li:last-child { border-bottom: none; }
+#friend-list li.empty, #lobby-friend-list li.empty { justify-content: center; color: var(--muted); }
+#friend-list li .btn, #lobby-friend-list li .btn { padding: 5px 12px; min-width: 0; }
 .word-del {
   font: inherit;
   font-size: 13px;
@@ -202,6 +225,7 @@ h2 { margin-top: 0; }
   margin: 12px 0;
   user-select: text;
 }
+.room-code-compact { font-size: 22px; letter-spacing: 3px; }
 
 .room-code-mini {
   font-size: 13px;
@@ -798,6 +822,23 @@ input[type="range"]::-webkit-slider-thumb {
 #wildcard-field select { padding: 6px 8px; }
 
 /* ---------- 自動更新バナー (画面下部に固定) ---------- */
+.invite-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  padding: 10px 22px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--accent);
+  box-shadow: 0 4px 18px rgba(0,0,0,.4);
+  z-index: 125;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+.invite-banner .menu-buttons { margin: 0; }
+
 .update-banner {
   position: fixed;
   left: 0; right: 0; bottom: 0;

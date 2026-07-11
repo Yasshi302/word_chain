@@ -18,6 +18,7 @@
         <button id="btn-goto-create" class="btn primary big">部屋を作る (ホスト)</button>
         <button id="btn-goto-join" class="btn big">部屋に入る (ゲスト)</button>
         <button id="btn-goto-offline" class="btn big">オフライン対戦 (交代プレイ)</button>
+        <button id="btn-goto-friends" class="btn big">フレンド</button>
         <button id="btn-goto-settings" class="btn big">設定 (辞書の編集)</button>
       </div>
       <p id="dict-status" class="muted">辞書を読み込み中...</p>
@@ -79,6 +80,11 @@
         <p class="muted">この部屋コードとパスワードを相手に伝えてください（最大3人まで参加できます）</p>
         <div class="room-code" id="lobby-code"></div>
         <button id="btn-copy-code" class="btn small">コードをコピー</button>
+      </div>
+
+      <div id="lobby-invite-friends" class="hidden">
+        <p class="panel-caption">フレンドを招待</p>
+        <ul id="lobby-friend-list"></ul>
       </div>
 
       <div class="lobby-players">
@@ -289,6 +295,41 @@
   </section>
 
   <!-- 設定 (辞書の編集・音量) -->
+  <!-- フレンド -->
+  <section id="screen-friends" class="screen">
+    <div class="center-box settings-box">
+      <h2>フレンド</h2>
+
+      <p class="panel-caption">自分のフレンドコード</p>
+      <p class="muted">このコードを対戦相手に伝えると、お互いに登録し合うことで次回以降オンライン対戦の招待ができるようになります。</p>
+      <div class="room-code room-code-compact" id="my-friend-code"></div>
+      <div class="menu-buttons">
+        <button id="btn-copy-friend-code" class="btn small">コピー</button>
+      </div>
+
+      <p class="panel-caption">フレンドを追加</p>
+      <div class="field">
+        <span>相手のフレンドコード</span>
+        <input id="friend-add-code" type="text" maxlength="12" autocomplete="off" spellcheck="false" placeholder="相手から教えてもらったコード">
+      </div>
+      <div class="field">
+        <span>表示名</span>
+        <div class="add-row">
+          <input id="friend-add-name" type="text" maxlength="24" autocomplete="off" spellcheck="false" placeholder="ニックネーム">
+          <button id="btn-friend-add" class="btn small">追加</button>
+        </div>
+      </div>
+      <p id="friend-add-error" class="error"></p>
+
+      <p class="panel-caption">フレンド一覧</p>
+      <ul id="friend-list"></ul>
+
+      <div class="menu-buttons">
+        <button id="btn-friends-back" class="btn">戻る</button>
+      </div>
+    </div>
+  </section>
+
   <section id="screen-settings" class="screen">
     <div class="center-box settings-box">
       <h2>設定</h2>
@@ -515,6 +556,15 @@
   <div id="item-get-toast" class="item-get-toast hidden"></div>
   <div id="clear-countdown" class="clear-countdown hidden"></div>
 
+  <!-- フレンドからの対戦招待 (画面上部に固定、起動中はどの画面でも表示され得る) -->
+  <div id="invite-banner" class="invite-banner hidden">
+    <span id="invite-banner-text"></span>
+    <div class="menu-buttons">
+      <button id="btn-invite-join" class="btn primary small">参加する</button>
+      <button id="btn-invite-dismiss" class="btn small">閉じる</button>
+    </div>
+  </div>
+
   <!-- 自動更新の状態表示 (画面下部に固定) -->
   <div id="update-banner" class="update-banner hidden">
     <span id="update-banner-text"></span>
@@ -526,6 +576,7 @@
   <script src="../node_modules/peerjs/dist/peerjs.min.js"></script>
   <script src="game.js"></script>
   <script src="net.js"></script>
+  <script src="presence.js"></script>
   <script src="cpu.js"></script>
   <script src="app.js"></script>
 </body>

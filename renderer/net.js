@@ -94,7 +94,8 @@ const Net = (() => {
   // ゲーム系メッセージ種別ごとの検証 (認証系は別処理)。
   const VALIDATORS = {
     // --- guest -> host ---
-    'hello': (m) => m.name === undefined || (typeof m.name === 'string' && m.name.length <= 24),
+    'hello': (m) => (m.name === undefined || (typeof m.name === 'string' && m.name.length <= 24))
+      && friendIdOk(m.friendId),
     'config-ack': () => true,
     'move': (m) => Number.isInteger(m.r) && m.r >= 0 && m.r < 15
       && Number.isInteger(m.c) && m.c >= 0 && m.c < 15
@@ -185,11 +186,15 @@ const Net = (() => {
 
   function sizeOk(n) { return Number.isInteger(n) && n >= 8 && n <= 15; }
   function timeOk(n) { return [10, 30, 60, 120, 180, 240, 300, 0].includes(n); }
+  // フレンドコード(恒久ID)の形式。renderer/presence.jsと同じ文字集合・長さ(12文字)。
+  const FRIEND_ID_RE = /^[abcdefghjkmnpqrstuvwxyz23456789]{12}$/;
+  function friendIdOk(v) { return v === undefined || v === null || (typeof v === 'string' && FRIEND_ID_RE.test(v)); }
   function rosterOk(a) {
     return Array.isArray(a) && a.length >= 1 && a.length <= 4
       && a.every((p) => p && typeof p.id === 'string' && p.id.length <= 8
         && typeof p.name === 'string' && p.name.length <= 24
-        && (p.cpuLevel === undefined || p.cpuLevel === null || p.cpuLevel === 'coop'));
+        && (p.cpuLevel === undefined || p.cpuLevel === null || p.cpuLevel === 'coop')
+        && friendIdOk(p.friendId));
   }
 
   let peer = null;

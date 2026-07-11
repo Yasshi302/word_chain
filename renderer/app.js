@@ -42,7 +42,10 @@
   let itemBlockCount = 1;         // アイテム「ブロック」の盤面への配置数 (試合開始前設定)
   let itemWildcardCount = 1;      // アイテム「ワイルドカード」の盤面への配置数 (試合開始前設定)
   let clearCountdownTimer = null; // 「クリア」使用受付中のカウントダウン表示用interval
-  let blockOfferShownFor = null;  // 直近に表示したブロック確認オファーのplayerId (再描画の重複防止)
+  let myFriendCode = null;        // 自分の恒久フレンドコード (friend-store.jsが生成・保存)
+  let friendList = [];            // [{friendId, name, addedAt}]
+  let myRoomPassword = null;      // 自分がホストした部屋のパスワード (フレンド招待に使う)
+  let pendingInvite = null;       // { roomCode, password } | null (フレンドからの招待を受信中)
 
   let cpuWordIndex = null;        // CPU用: 先頭文字×文字数でグルーピングした辞書索引
   let cpuStartCharCounts = null;  // CPU用: 先頭文字の頻度 (相手の続けやすさの目安)
@@ -85,7 +88,12 @@
   function colorOf(id) { const i = slotIndex(id); return 'p' + (i < 0 ? 0 : i); }
   // cpuLevelは協力モードのCPU席('coop')を全員に伝えるためだけに含める
   // (弱い/普通/強い/最強のオフライン専用CPUレベルはネットワークでは使わない)。
-  function publicRoster() { return roster.map((p) => ({ id: p.id, name: p.name, cpuLevel: p.cpuLevel === 'coop' ? 'coop' : null })); }
+  function publicRoster() {
+    return roster.map((p) => ({
+      id: p.id, name: p.name, cpuLevel: p.cpuLevel === 'coop' ? 'coop' : null,
+      friendId: p.friendId || null,
+    }));
+  }
   function activeIds() { return roster.filter((p) => p.connected).map((p) => p.id); }
 
   function isCpuTurn() {
@@ -180,6 +188,15 @@
       $('dict-status').textContent = '辞書の読み込みに失敗しました。';
     }
     updateRecordDisplays();
+    try {
+      const friendData = await window.api.getFriendData();
+      myFriendCode = friendData.myFriendCode;
+      friendList = Array.isArray(friendData.friends) ? friendData.friends : [];
+      renderFriendList();
+      // フレンドからの招待を常時受け付ける(ホーム・ロビー・対戦中を問わず起動中は有効)。
+      // 失敗しても対戦自体はブロックしないベストエフォートの機能。
+      Presence.start(myFriendCode, friendList, { onInvite: handleIncomingInvite });
+    } catch {}
     await tryAutoResume();
   }
 
@@ -551,6 +568,73 @@
     if (mode === 'offline') { el.classList.add('hidden'); return; }
     $('game-room-code-value').textContent = Net.getRoomCode() || '';
     el.classList.remove('hidden');
+  }
+
+  // ---------------- フレンド ----------------
+  function friendOf(friendId) { return friendList.find((f) => f.friendId === friendId); }
+  function renderFriendList() {
+    $('my-friend-code').textContent = myFriendCode || '';
+    const ul = $('friend-list');
+    ul.innerHTML = '';
+    if (friendList.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      li.textContent = 'まだフレンドがいません。';
+      ul.appendChild(li);
+    } else {
+      for (const f of friendList) {
+        const li = document.createElement('li');
+        const nm = document.createElement('span'); nm.textContent = f.name;
+        const btn = document.createElement('button');
+        btn.className = 'btn small'; btn.textContent = '削除';
+        btn.addEventListener('click', async () => {
+          const data = await window.api.removeFriend(f.friendId);
+          friendList = Array.isArray(data.friends) ? data.friends : [];
+          Presence.setFriendList(friendList);
+          renderFriendList();
+        });
+        li.appendChild(nm); li.appendChild(btn);
+        ul.appendChild(li);
+      }
+    }
+    Presence.setFriendList(friendList);
+    renderLobbyFriendInvite();
+  }
+  // ロビー(ホスト)で、まだ参加していないフレンドに部屋への招待を送るボタン一覧を描画する
+  function renderLobbyFriendInvite() {
+    const wrap = $('lobby-invite-friends');
+    if (mode !== 'online-host' || phase !== 'lobby' || friendList.length === 0) {
+      wrap.classList.add('hidden');
+      return;
+    }
+    wrap.classList.remove('hidden');
+    const ul = $('lobby-friend-list');
+    ul.innerHTML = '';
+    for (const f of friendList) {
+      const li = document.createElement('li');
+      const nm = document.createElement('span'); nm.textContent = f.name;
+      const btn = document.createElement('button');
+      btn.className = 'btn small'; btn.textContent = '招待';
+      btn.addEventListener('click', () => {
+        btn.disabled = true; btn.textContent = '送信中...';
+        const roomCode = Net.getRoomCode();
+        Presence.sendInvite(f.friendId, savedName, roomCode, myRoomPassword || '', (res) => {
+          btn.disabled = false;
+          btn.textContent = res.ok ? '招待済み' : 'オフライン';
+          setTimeout(() => { btn.textContent = '招待'; }, 3000);
+        });
+      });
+      li.appendChild(nm); li.appendChild(btn);
+      ul.appendChild(li);
+    }
+  }
+  function handleIncomingInvite({ fromFriendId, fromName, roomCode, password }) {
+    const friend = friendOf(fromFriendId);
+    const displayName = (friend && friend.name) || fromName || 'フレンド';
+    $('invite-banner-text').textContent = `${displayName}さんから対戦の招待が届きました。`;
+    $('invite-banner').classList.remove('hidden');
+    pendingInvite = { roomCode, password };
+    Sound.sfx('chat');
   }
   function refreshAll() {
     renderScores(); renderTurn(); renderChain(); renderHazards();
@@ -1000,6 +1084,18 @@
       const you = (mode !== 'offline' && p.id === myId) ? ' (あなた)' : '';
       const unit = game.territoryMode ? '点' : '文字';
       row.innerHTML = `<span class="rank-pos">${pos}位</span><span class="rank-name ${colorOf(p.id)}">${escapeHtml(p.name + you)}</span><span class="rank-score">${game.scores[p.id]} ${unit}</span>`;
+      // オンラインで、CPUではない他プレーヤーで、フレンドコードが分かっていて未登録なら「フレンドに登録」を出す
+      if (mode !== 'offline' && p.id !== myId && !p.cpuLevel && p.friendId && p.friendId !== myFriendCode && !friendOf(p.friendId)) {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'btn small'; addBtn.textContent = 'フレンドに登録';
+        addBtn.addEventListener('click', async () => {
+          const data = await window.api.addFriend(p.friendId, p.name);
+          friendList = Array.isArray(data.friends) ? data.friends : [];
+          Presence.setFriendList(friendList);
+          addBtn.disabled = true; addBtn.textContent = '登録済み';
+        });
+        row.appendChild(addBtn);
+      }
       box.appendChild(row);
     });
     $('result-record').textContent = recordText();
@@ -1320,8 +1416,9 @@
     switch (m.t) {
       case 'hello': {
         const e = entryOf(id);
-        if (e && typeof m.name === 'string' && m.name.trim()) {
-          e.name = m.name.trim().slice(0, 12);
+        if (e) {
+          if (typeof m.friendId === 'string') e.friendId = m.friendId;
+          if (typeof m.name === 'string' && m.name.trim()) e.name = m.name.trim().slice(0, 12);
           Net.broadcast({ t: 'lobby', players: publicRoster() });
           renderLobby();
         }
@@ -1371,7 +1468,7 @@
   }
   function goToLobbyAsHost(rematch, hostName) {
     mode = 'online-host'; myId = 'p0'; phase = 'lobby';
-    if (!rematch) roster = [{ id: 'p0', name: hostName || 'プレーヤー1', connId: null, connected: true }];
+    if (!rematch) roster = [{ id: 'p0', name: hostName || 'プレーヤー1', connId: null, connected: true, friendId: myFriendCode }];
     else roster = roster.filter((p) => p.connected && p.cpuLevel !== 'coop'); // 協力モードのCPU席は次のロビーに持ち越さない
     hideAllModals();
     $('lobby-title').textContent = '相手を待っています (ホスト)';
@@ -1381,6 +1478,7 @@
     updateSizeLabel();
     if (rematch) Net.broadcast({ t: 'lobby', players: publicRoster() });
     renderLobby();
+    renderLobbyFriendInvite();
     showScreen('screen-lobby');
   }
   function renderLobby() {
@@ -1482,7 +1580,7 @@
         $('btn-lobby-start').classList.add('hidden');
         $('lobby-status').textContent = 'ホストの開始を待っています...';
         showScreen('screen-lobby');
-        Net.sendHost({ t: 'hello', name: savedName });
+        Net.sendHost({ t: 'hello', name: savedName, friendId: myFriendCode });
         Net.sendHost({ t: 'dict-sync', updatedAt: customUpdatedAt, words: [...customWords] });
         // 対戦部屋に入った時点で最新版か確認する (取得元は常にGitHub Releases)
         await checkAndApplyUpdateIfNeeded(
@@ -1694,7 +1792,7 @@
     stopTimer();
     stopClearCountdownUI();
     if (cpuTimer) { clearTimeout(cpuTimer); cpuTimer = null; }
-    game = null; phase = 'home'; roster = []; myId = null;
+    game = null; phase = 'home'; roster = []; myId = null; myRoomPassword = null;
     approval = null; waitingSlot = null; discInfo = null; pendingMove = null; localProposal = null;
     updatingSlot = null; disarmUpdatingTimeout(); hideUpdateBanner();
     cleanupWaitButtons(); updateRecordDisplays();
@@ -1862,6 +1960,43 @@
   $('btn-goto-join').addEventListener('click', () => { $('join-name').value = savedName; $('join-code').value = ''; $('join-password').value = ''; $('join-error').textContent = ''; showScreen('screen-join'); $('join-name').focus(); });
   $('btn-goto-offline').addEventListener('click', () => { updateOfflineSizeLabel(); populateInitialCountOptions($('offline-initial-count'), $('offline-placement').value); showScreen('screen-offline'); });
   $('btn-goto-settings').addEventListener('click', openSettings);
+  $('btn-goto-friends').addEventListener('click', () => {
+    $('friend-add-code').value = ''; $('friend-add-name').value = ''; $('friend-add-error').textContent = '';
+    renderFriendList();
+    showScreen('screen-friends');
+  });
+  $('btn-friends-back').addEventListener('click', () => showScreen('screen-home'));
+  $('btn-copy-friend-code').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(myFriendCode || ''); }
+    catch { /* クリップボードが使えない環境では何もしない */ }
+  });
+  $('btn-friend-add').addEventListener('click', async () => {
+    const code = $('friend-add-code').value.trim().toLowerCase();
+    const name = $('friend-add-name').value.trim();
+    if (!Presence.CODE_RE.test(code)) {
+      $('friend-add-error').textContent = `フレンドコードは${Presence.CODE_LEN}文字の英数字です。`;
+      return;
+    }
+    if (code === myFriendCode) { $('friend-add-error').textContent = '自分自身は登録できません。'; return; }
+    if (!name) { $('friend-add-error').textContent = '表示名を入力してください。'; return; }
+    const data = await window.api.addFriend(code, name);
+    friendList = Array.isArray(data.friends) ? data.friends : [];
+    $('friend-add-code').value = ''; $('friend-add-name').value = ''; $('friend-add-error').textContent = '';
+    renderFriendList();
+  });
+  $('btn-invite-join').addEventListener('click', () => {
+    if (!pendingInvite) return;
+    const { roomCode, password } = pendingInvite;
+    $('invite-banner').classList.add('hidden');
+    pendingInvite = null;
+    leaveEverything();
+    showScreen('screen-join');
+    startJoinFlow(roomCode, password, savedName);
+  });
+  $('btn-invite-dismiss').addEventListener('click', () => {
+    $('invite-banner').classList.add('hidden');
+    pendingInvite = null;
+  });
   $('btn-create-back').addEventListener('click', () => showScreen('screen-home'));
   $('btn-join-back').addEventListener('click', () => showScreen('screen-home'));
   $('btn-offline-back').addEventListener('click', () => showScreen('screen-home'));
@@ -1967,24 +2102,28 @@
     const willRestart = await checkAndApplyUpdateIfNeeded('host');
     if (willRestart) return; // アプリはまもなく終了・再起動する
     $('btn-create').disabled = false;
+    myRoomPassword = pass;
     goToLobbyAsHost(false, name);
     $('lobby-code').textContent = '......'; $('lobby-status').textContent = '部屋を作成中...';
     Net.createRoom(pass, hostEvents());
   });
-  $('btn-join').addEventListener('click', () => {
-    const code = Net.normalizeCode($('join-code').value);
-    if (!code) { $('join-error').textContent = '部屋コードは6文字の英数字です。'; return; }
-    const pass = $('join-password').value;
-    if (pass.length < 4 || pass.length > 64) { $('join-error').textContent = 'パスワードは4〜64文字で入力してください。'; return; }
-    savedName = ($('join-name').value.trim() || 'プレーヤー2').slice(0, 12);
+  function startJoinFlow(code, pass, name) {
+    savedName = (name || savedName || 'プレーヤー2').slice(0, 12);
     lastJoinCode = code; lastJoinPass = pass;
     mode = 'online-guest'; myId = null; roster = []; phase = 'lobby';
-    $('join-error').textContent = '';
     $('lobby-title').textContent = '接続中...'; $('lobby-code-wrap').classList.add('hidden');
     $('lobby-host-controls').classList.add('hidden'); $('btn-lobby-start').classList.add('hidden');
     $('lobby-status').textContent = 'ホストに接続しています...';
     showScreen('screen-lobby');
     Net.joinRoom(code, pass, guestEvents());
+  }
+  $('btn-join').addEventListener('click', () => {
+    const code = Net.normalizeCode($('join-code').value);
+    if (!code) { $('join-error').textContent = '部屋コードは6文字の英数字です。'; return; }
+    const pass = $('join-password').value;
+    if (pass.length < 4 || pass.length > 64) { $('join-error').textContent = 'パスワードは4〜64文字で入力してください。'; return; }
+    $('join-error').textContent = '';
+    startJoinFlow(code, pass, $('join-name').value.trim());
   });
   $('btn-copy-code').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText($('lobby-code').textContent); $('lobby-status').textContent = 'コピーしました。'; }
