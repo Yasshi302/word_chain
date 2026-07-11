@@ -533,6 +533,36 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
   assert(res.ok === false, 'ブロックは初期文字マスの周囲2マス以内には配置できない');
 }
 {
+  // ブロックは現在の起点マス(相手が次に文字を入力し始める位置)の周囲1マスにも配置できない
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 10, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
+  });
+  g.items.p0.block = 3;
+  g.pendingBlockOffer = { playerId: 'p0' };
+  g.chain = { r: 0, c: 0 }; // 初期文字マスから十分離れた位置を起点マスとみなす
+  let res = WC.useItem(g, 'p0', 'block', 0, 1); // 起点マスの隣接マス(周囲1マス以内)
+  assert(res.ok === false, '起点マスに隣接するマスには配置できない');
+  assert(g.items.p0.block === 3, '拒否された場合は所持数が減らない');
+  res = WC.useItem(g, 'p0', 'block', 0, 0); // 起点マス自身
+  assert(res.ok === false, '起点マス自身にも配置できない');
+  g.pendingBlockOffer = { playerId: 'p0' }; // 上の失敗した試行でオファーが閉じていないことを再確認して続行
+  res = WC.useItem(g, 'p0', 'block', 0, 5); // 起点マス・初期文字マスのいずれからも十分離れたマス
+  assert(res.ok === true, '起点マス・初期文字マスのいずれからも十分離れたマスには配置できる');
+}
+{
+  // blockableCells()も起点マス周囲1マスを候補から除外する(UIハイライト用)
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 10, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+  });
+  g.chain = { r: 0, c: 0 };
+  const cells = WC.blockableCells(g);
+  assert(!cells.some(([r, c]) => r === 0 && c === 1), 'blockableCellsも起点マスの隣接マスを除外する');
+  assert(cells.some(([r, c]) => r === 0 && c === 5), '起点マス・初期文字マスから十分離れたマスは候補に含まれる');
+}
+{
   // itemsModeが無効なら使用できない
   const g = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
   const res = WC.useItem(g, 'p0', 'clear', 0, 0);

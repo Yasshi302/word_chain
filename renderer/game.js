@@ -31,6 +31,9 @@ const WordChain = (() => {
   // お邪魔マス移動の移動先は、現在の起点マス(直前の単語の末尾=次の手番が単語を
   // 作り始めるマス)からこのマス数(チェビシェフ距離)以内には配置しない
   const OBSTACLE_MOVE_CHAIN_AVOID_RADIUS = 1;
+  // 「ブロック」の配置先も、現在の起点マス(=相手が次に文字を入力し始める位置)から
+  // このマス数(チェビシェフ距離)以内には配置しない(隣接マスへの確定的なブロックを防ぐ)
+  const BLOCK_CHAIN_AVOID_RADIUS = 1;
   // 初期文字の候補: 単語の先頭になりやすい基本のかな
   const START_LETTER_POOL = [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれわ'];
   // 拗音・促音・小さい母音は、同じ行の直音でも入力できるようにする (例:「ゃ」→「や」)
@@ -549,10 +552,19 @@ const WordChain = (() => {
     return out;
   }
 
-  /** 「ブロック」アイテムで配置可能な未入力マス一覧 (初期文字マス周囲2マスを除く)。UIのハイライト用 */
-  function blockableCells(game) {
+  /** 「ブロック」を配置できないマスの一覧 (初期文字マス周囲2マス + 現在の起点マス周囲1マス) */
+  function blockAvoidCells(game) {
     const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
-    const avoidSet = new Set(avoid.map(([r, c]) => r * 100 + c));
+    const avoidChain = game.chain
+      ? expandAvoidRadius(game.size, [[game.chain.r, game.chain.c]], BLOCK_CHAIN_AVOID_RADIUS)
+      : [];
+    return [...avoid, ...avoidChain];
+  }
+
+  /** 「ブロック」アイテムで配置可能な未入力マス一覧 (初期文字マス周囲2マス・現在の起点マス
+   * 周囲1マスを除く)。UIのハイライト用 */
+  function blockableCells(game) {
+    const avoidSet = new Set(blockAvoidCells(game).map(([r, c]) => r * 100 + c));
     const out = [];
     for (let r = 0; r < game.size; r++) {
       for (let c = 0; c < game.size; c++) {
@@ -650,9 +662,8 @@ const WordChain = (() => {
     if (inv.block <= 0) return { ok: false, reason: 'このアイテムの残り回数がありません' };
     if (game.board[r][c] !== null) return { ok: false, reason: 'そのマスには既に文字があります' };
     if (game.blocked[r][c]) return { ok: false, reason: 'そのマスは既にお邪魔マスです' };
-    const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
-    if (avoid.some(([ar, ac]) => ar === r && ac === c)) {
-      return { ok: false, reason: '初期文字マスの周囲2マスには配置できません' };
+    if (blockAvoidCells(game).some(([ar, ac]) => ar === r && ac === c)) {
+      return { ok: false, reason: '初期文字マスの周囲2マス・現在の起点マスの周囲1マスには配置できません' };
     }
     game.blocked[r][c] = true;
     inv.block -= 1;
