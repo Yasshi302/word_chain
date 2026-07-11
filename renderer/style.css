@@ -116,7 +116,7 @@ h2 { margin-top: 0; }
 
 .item-counts-field {
   display: grid;
-  grid-template-columns: auto 64px auto 64px;
+  grid-template-columns: auto 64px auto 64px auto 64px;
   align-items: center;
   gap: 8px;
 }
@@ -436,6 +436,7 @@ h2 { margin-top: 0; }
 #history li.p2 { color: var(--p2); }
 #history li.p3 { color: var(--p3); }
 #history li.pass-entry { color: var(--muted); }
+#history li.territory-loss-entry { font-size: 13px; font-style: italic; opacity: .85; }
 
 .game-buttons { display: flex; gap: 10px; }
 .game-buttons .btn { flex: 1; min-width: 0; }
@@ -738,6 +739,63 @@ input[type="range"]::-webkit-slider-thumb {
   animation: toast-in .25s ease;
   pointer-events: none;
 }
+
+/* アイテム取得演出: 画面中心に表示するトースト */
+.item-get-toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 18px 30px;
+  z-index: 130;
+  font-size: 22px;
+  font-weight: bold;
+  color: var(--accent);
+  text-align: center;
+  box-shadow: 0 8px 26px rgba(0,0,0,.55), 0 0 20px rgba(120, 170, 255, .35);
+  animation: item-get-in .3s ease;
+  pointer-events: none;
+}
+@keyframes item-get-in {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.5); }
+  70% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* 「クリア」使用受付中のカウントダウン (画面上部) */
+.clear-countdown {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 130;
+  font-size: 40px;
+  font-weight: bold;
+  color: var(--gold);
+  text-shadow: 0 0 12px rgba(230, 184, 76, .6);
+  pointer-events: none;
+}
+.clear-countdown.pop { animation: pop .32s ease; }
+
+.item-inventory {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+#wildcard-field {
+  margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+#wildcard-field select { padding: 6px 8px; }
 
 /* ---------- 自動更新バナー (画面下部に固定) ---------- */
 .update-banner {

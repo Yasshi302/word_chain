@@ -242,6 +242,28 @@ const WordChain = (() => {
     return randomDistinctCells(size, n, avoid);
   }
 
+  const ITEM_KINDS = ['clear', 'block', 'wildcard'];
+
+  /**
+   * アイテムマス(クリア/ブロック/ワイルドカード)を、初期文字マス・お邪魔マスを避けて
+   * ランダムに生成する(3種類のアイテム同士でも重複しない)。プレーヤーからは見えず、
+   * 単語の入力でそのマスに新しく文字が置かれたときに初めて入手できる。
+   * counts: { clear, block, wildcard } (各0以上、0ならそのアイテムは配置しない)
+   * @returns {{clear:number[][], block:number[][], wildcard:number[][]}}
+   */
+  function generateItemCells(size, initialCells, obstacleCells, counts) {
+    const avoid = [...initialCells, ...(obstacleCells || [])];
+    const result = { clear: [], block: [], wildcard: [] };
+    for (const kind of ITEM_KINDS) {
+      const n = Math.max(0, Math.round((counts && counts[kind]) || 0));
+      if (n <= 0) continue;
+      const picked = randomDistinctCells(size, n, avoid);
+      result[kind] = picked;
+      avoid.push(...picked);
+    }
+    return result;
+  }
+
   /**
    * 新規ゲーム。
    * opts = { size, players, first, timeLimit, initialCells, initialLetters, obstacleCells, territoryMode, bonusMode, obstacleMove, itemsMode }
@@ -264,10 +286,12 @@ const WordChain = (() => {
    *              なるまで、呼び出し側が毎ターン relocateObstacles() を呼ぶとお邪魔マスのうち
    *              1マスだけがランダムに再配置される想定。移動先は現在の起点マス(game.chain)
    *              の周囲1マスには配置されない。省略時は無効)。
-   *   itemsMode: true でアイテムオプション有効。各プレーヤーが試合中、設定された回数だけ
-   *              「クリア」(お邪魔マスを1つ解除)と「ブロック」(未入力マスに新しくお邪魔マス
-   *              を配置)をuseItem()経由で使えるようになる。回数は itemClearCount/
-   *              itemBlockCount で指定 (省略時はそれぞれ1回)。省略時(itemsMode:false)は無効。
+   *   itemsMode: true でアイテムオプション有効。「クリア」(お邪魔マスを1つ解除)・「ブロック」
+   *              (未入力マスに新しくお邪魔マスを配置)・「ワイルドカード」(単語の経路上にある
+   *              既存の文字を1つ書き換える)の3種類。開始時は誰も所持しておらず(全員0個)、
+   *              盤面上の非表示のアイテムマスに新しく文字を置くと入手する。配置数は
+   *              itemClearCount/itemBlockCount/itemWildcardCount で指定 (省略時はそれぞれ1個)。
+   *              省略時(itemsMode:false)は無効。
    */
   function newGame(opts) {
     const size = clampSize(opts.size);
@@ -285,10 +309,13 @@ const WordChain = (() => {
     for (const p of players) { scores[p] = 0; active[p] = true; }
     const itemsMode = !!opts.itemsMode;
     const items = {};
+    let itemCells = { clear: [], block: [], wildcard: [] };
     if (itemsMode) {
+      for (const p of players) items[p] = { clear: 0, block: 0, wildcard: 0 };
       const clearCount = Math.max(0, Number.isInteger(opts.itemClearCount) ? opts.itemClearCount : 1);
       const blockCount = Math.max(0, Number.isInteger(opts.itemBlockCount) ? opts.itemBlockCount : 1);
-      for (const p of players) items[p] = { clear: clearCount, block: blockCount };
+      const wildcardCount = Math.max(0, Number.isInteger(opts.itemWildcardCount) ? opts.itemWildcardCount : 1);
+      itemCells = generateItemCells(size, initialCells, obstacleCells, { clear: clearCount, block: blockCount, wildcard: wildcardCount });
     }
     return {
       size,
@@ -304,9 +331,13 @@ const WordChain = (() => {
       bonusMultValue: null,  // 2〜3(倍率) / null
       obstacleMove: !!opts.obstacleMove,
       itemsMode,
-      items,         // playerId -> { clear: 残り回数, block: 残り回数 }。itemsMode無効なら空
-      itemGraceId: null, // 直前に手番を終えたプレーヤーのid。「ブロック」はこのプレーヤーも、
-                         // 次のプレーヤーが手を確定する(=このidが上書きされる)まで使用できる
+      items,         // playerId -> { clear, block, wildcard } 現在の所持数。itemsMode無効なら空
+      itemCells,     // { clear:[[r,c]...], block:[...], wildcard:[...] } 盤面上の未回収アイテム
+                     // (非表示。新しく文字が置かれたマスと一致すると入手し、リストから消える)
+      pendingBlockOffer: null, // { playerId } | null。手番開始時、直前の手番プレーヤーが
+                                // 「ブロック」を持っていれば開かれる使用確認オファー
+      pendingItemUse: null,    // { playerId, item, expiresAt } | null。「クリア」の使用受付猶予
+                                // (5秒)。expiresAtはDate.now()基準のミリ秒。
       scores,
       players,      // 手番の巡回順
       active,       // playerId -> bool
@@ -531,19 +562,68 @@ const WordChain = (() => {
     return out;
   }
 
-  /** このプレーヤーが今このアイテムを使用してよいか。自分の手番なら常にOK。
-   * 「ブロック」だけは、直前に手番を終えたプレーヤー(game.itemGraceId)にも、次のプレーヤーが
-   * 手を確定する(=itemGraceIdが上書きされる)まで使用を認める。 */
+  // 「クリア」使用開始から、対象マスをクリックできる猶予 (ミリ秒)。成否に関わらず
+  // 開始時点で所持数を消費する(猶予中に対象を選べなくても在庫は戻らない)。
+  const CLEAR_ITEM_WINDOW_MS = 5000;
+
+  /** このプレーヤーが今このアイテムを使用してよいか。
+   * 「クリア」「ワイルドカード」は自分の手番中ならいつでもOK。
+   * 「ブロック」は、自分に開かれている使用確認オファー(game.pendingBlockOffer)がある間だけOK。
+   */
   function canUseItemNow(game, playerId, item) {
-    if (currentPlayer(game) === playerId) return true;
-    return item === 'block' && game.itemGraceId === playerId;
+    if (item === 'block') {
+      return !!(game.pendingBlockOffer && game.pendingBlockOffer.playerId === playerId);
+    }
+    if (item === 'clear' || item === 'wildcard') {
+      return currentPlayer(game) === playerId;
+    }
+    return false;
   }
 
   /**
-   * アイテムを使用する (試合中、設定された回数まで。手番は消費しない)。
-   * item: 'clear' (指定したお邪魔マスを1つ解除) | 'block' (指定した未入力マスに新しくお邪魔マスを配置)
-   * 「ブロック」は自分の手番中に加え、次のプレーヤーがまだ手を確定していない間も使用できる
-   * (canUseItemNow参照)。
+   * 手番開始時に呼ぶ想定: 直前に手番を終えたプレーヤー(moverId)が「ブロック」を
+   * 持っていれば、使用確認オファーを返す。持っていなければnull。
+   */
+  function computeBlockOffer(game, moverId) {
+    if (!game.itemsMode) return null;
+    const inv = game.items[moverId];
+    if (!inv || inv.block <= 0) return null;
+    return { playerId: moverId };
+  }
+
+  /** 開かれている「ブロック」使用確認オファーを、使わずに閉じる(在庫は減らない)。 */
+  function declineBlockOffer(game, playerId) {
+    if (game.pendingBlockOffer && game.pendingBlockOffer.playerId === playerId) {
+      game.pendingBlockOffer = null;
+    }
+  }
+
+  /**
+   * 「クリア」の使用を開始する(自分の手番中、任意のタイミング)。この時点で所持数を
+   * 1消費し、CLEAR_ITEM_WINDOW_MS(5秒)以内に useItem('clear', r, c) で対象を選べる
+   * 受付状態にする。猶予内に選べなくても(=失敗しても)所持数は戻らない。
+   * @returns {{ok:true, expiresAt:number} | {ok:false, reason}}
+   */
+  function startClearWindow(game, playerId) {
+    if (!game.itemsMode) return { ok: false, reason: 'アイテムは無効です' };
+    const inv = game.items[playerId];
+    if (!inv) return { ok: false, reason: '不明なプレーヤーです' };
+    if (currentPlayer(game) !== playerId) return { ok: false, reason: '自分の手番でのみ使用できます' };
+    if (inv.clear <= 0) return { ok: false, reason: 'このアイテムの残り回数がありません' };
+    if (game.pendingItemUse && Date.now() <= game.pendingItemUse.expiresAt) {
+      return { ok: false, reason: '既に使用受付中です' };
+    }
+    inv.clear -= 1;
+    const expiresAt = Date.now() + CLEAR_ITEM_WINDOW_MS;
+    game.pendingItemUse = { playerId, item: 'clear', expiresAt };
+    return { ok: true, expiresAt };
+  }
+
+  /**
+   * アイテムを使用する (手番は消費しない)。
+   * item: 'clear' (指定したお邪魔マスを1つ解除。事前にstartClearWindow()で受付を開始しておく
+   *       必要がある) | 'block' (指定した未入力マスに新しくお邪魔マスを配置。事前に
+   *       pendingBlockOfferが自分に開かれている必要がある)
    * @returns {{ok:true} | {ok:false, reason}}
    */
   function useItem(game, playerId, item, r, c) {
@@ -552,20 +632,31 @@ const WordChain = (() => {
     const inv = game.items[playerId];
     if (!inv || (item !== 'clear' && item !== 'block')) return { ok: false, reason: '不明なアイテムです' };
     if (!canUseItemNow(game, playerId, item)) return { ok: false, reason: '今はこのアイテムを使用できません' };
-    if (inv[item] <= 0) return { ok: false, reason: 'このアイテムの残り回数がありません' };
     if (item === 'clear') {
+      const pending = game.pendingItemUse;
+      if (!pending || pending.playerId !== playerId || pending.item !== 'clear') {
+        return { ok: false, reason: 'クリアの使用受付時間ではありません' };
+      }
+      if (Date.now() > pending.expiresAt) {
+        game.pendingItemUse = null;
+        return { ok: false, reason: 'クリアの使用受付時間が終了しました' };
+      }
       if (!game.blocked[r][c]) return { ok: false, reason: 'そのマスはお邪魔マスではありません' };
       game.blocked[r][c] = false;
-    } else {
-      if (game.board[r][c] !== null) return { ok: false, reason: 'そのマスには既に文字があります' };
-      if (game.blocked[r][c]) return { ok: false, reason: 'そのマスは既にお邪魔マスです' };
-      const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
-      if (avoid.some(([ar, ac]) => ar === r && ac === c)) {
-        return { ok: false, reason: '初期文字マスの周囲2マスには配置できません' };
-      }
-      game.blocked[r][c] = true;
+      game.pendingItemUse = null;
+      return { ok: true };
     }
-    inv[item] -= 1;
+    // block (使用確認オファーへの応諾)
+    if (inv.block <= 0) return { ok: false, reason: 'このアイテムの残り回数がありません' };
+    if (game.board[r][c] !== null) return { ok: false, reason: 'そのマスには既に文字があります' };
+    if (game.blocked[r][c]) return { ok: false, reason: 'そのマスは既にお邪魔マスです' };
+    const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
+    if (avoid.some(([ar, ac]) => ar === r && ac === c)) {
+      return { ok: false, reason: '初期文字マスの周囲2マスには配置できません' };
+    }
+    game.blocked[r][c] = true;
+    inv.block -= 1;
+    game.pendingBlockOffer = null;
     return { ok: true };
   }
 
@@ -623,11 +714,26 @@ const WordChain = (() => {
     if (normalizeSmallKana(chars[0]) !== normalizeSmallKana(game.board[r][c])) {
       return { ok: false, reason: `「${game.board[r][c]}」から始まる単語を入力してください` };
     }
+    const wildcardIndex = Number.isInteger(move.wildcardIndex) ? move.wildcardIndex : null;
+    if (wildcardIndex !== null) {
+      if (wildcardIndex < 0 || wildcardIndex >= chars.length) {
+        return { ok: false, reason: 'ワイルドカードの対象位置が不正です' };
+      }
+      if (!game.itemsMode) return { ok: false, reason: 'アイテムは無効です' };
+      const inv = game.items[currentPlayer(game)];
+      if (!inv || inv.wildcard <= 0) return { ok: false, reason: 'ワイルドカードの残り回数がありません' };
+    }
     const cells = rayCells(r, c, dir, chars.length);
     let newCount = 0;
     for (let i = 0; i < chars.length; i++) {
       const [cr, cc] = cells[i];
       const existing = game.board[cr][cc];
+      if (i === wildcardIndex) {
+        if (existing === null) {
+          return { ok: false, reason: 'ワイルドカードは既存の文字のマスにのみ使えます' };
+        }
+        continue; // ワイルドカード使用時は一致チェックを免除する
+      }
       if (existing === null) {
         newCount++;
       } else if (normalizeSmallKana(existing) !== normalizeSmallKana(chars[i])) {
@@ -666,23 +772,36 @@ const WordChain = (() => {
   /** 検証済みの手を適用する。置いたセル一覧を返す */
   function applyMove(game, move, by) {
     const chars = [...move.word];
+    const wildcardIndex = Number.isInteger(move.wildcardIndex) ? move.wildcardIndex : null;
     const cells = rayCells(move.r, move.c, move.dir, chars.length);
     const placed = [];
+    const captured = [];
+    const territoryLosses = {};
     for (let i = 0; i < chars.length; i++) {
       const [cr, cc] = cells[i];
+      const isWildcard = i === wildcardIndex;
       if (game.board[cr][cc] === null) {
         game.board[cr][cc] = chars[i];
         game.owner[cr][cc] = by;
         placed.push([cr, cc]);
-      } else if (game.territoryMode) {
+      } else if (game.territoryMode || isWildcard) {
         // 陣取りモード: 他プレーヤーが既に置いたマスを通ると、そのマスを奪う
-        // (元の所有者の得点から1点差し引く。自分自身のマスなら変化なし)
+        // (元の所有者の得点から1点差し引く。自分自身のマスなら変化なし)。
+        // ワイルドカード使用時は、陣取りモードでなくても対象マスの所有権が移り、
+        // 文字そのものも書き換わる(得点の増減は陣取りモード時のみ)。
         const prevOwner = game.owner[cr][cc];
-        if (prevOwner && prevOwner !== by) {
+        if (game.territoryMode && prevOwner && prevOwner !== by) {
           game.scores[prevOwner] -= 1;
+          territoryLosses[prevOwner] = (territoryLosses[prevOwner] || 0) + 1;
         }
         game.owner[cr][cc] = by;
+        captured.push([cr, cc]);
+        if (isWildcard) game.board[cr][cc] = chars[i];
       }
+    }
+    if (wildcardIndex !== null) {
+      const inv = game.items[by];
+      if (inv) inv.wildcard = Math.max(0, inv.wildcard - 1);
     }
     // ボーナスマス: 加点マスと倍率マスは別々に判定し、両方を通った場合は加点を
     // 適用した後に倍率をかける(例: 3文字+加点2→倍率2で (3+2)*2=10点)
@@ -696,26 +815,54 @@ const WordChain = (() => {
     if (flatValue) points += flatValue;
     if (multValue) points *= multValue;
     game.scores[by] += points;
+    // アイテムマス: 新しく文字を置いたマス(placed)がアイテムマスと重なれば入手する
+    const itemsGot = { clear: 0, block: 0, wildcard: 0 };
+    if (game.itemsMode && game.itemCells) {
+      for (const kind of ITEM_KINDS) {
+        const list = game.itemCells[kind];
+        if (!list || list.length === 0) continue;
+        const remaining = [];
+        for (const cell of list) {
+          const hit = placed.some(([pr, pc]) => pr === cell[0] && pc === cell[1]);
+          if (hit) itemsGot[kind]++;
+          else remaining.push(cell);
+        }
+        game.itemCells[kind] = remaining;
+      }
+      const inv = game.items[by];
+      if (inv && (itemsGot.clear || itemsGot.block || itemsGot.wildcard)) {
+        inv.clear += itemsGot.clear;
+        inv.block += itemsGot.block;
+        inv.wildcard += itemsGot.wildcard;
+      }
+    }
     game.usedWords.add(move.word);
-    game.history.push({ word: move.word, by, points });
+    game.history.push({
+      word: move.word, by, points,
+      territoryLosses: Object.keys(territoryLosses).length ? territoryLosses : undefined,
+      wildcardUsed: wildcardIndex !== null || undefined,
+    });
     const [lr, lc] = cells[cells.length - 1];
     game.chain = { r: lr, c: lc };
     game.passStreak = 0;
-    game.itemGraceId = by; // 「ブロック」は次のプレーヤーが手を確定するまでこのプレーヤーも使える
+    game.pendingItemUse = null; // 手番が変わるので「クリア」の使用受付は打ち切る
     advanceTurn(game);
-    return { placed, flatValue, multValue };
+    game.pendingBlockOffer = computeBlockOffer(game, by);
+    return { placed, captured, flatValue, multValue, itemsGot, territoryLosses };
   }
 
   function applyPass(game) {
     const by = currentPlayer(game);
     game.history.push({ pass: true, by });
     game.passStreak++;
-    game.itemGraceId = by; // 「ブロック」は次のプレーヤーが手を確定するまでこのプレーヤーも使える
+    game.pendingItemUse = null; // 手番が変わるので「クリア」の使用受付は打ち切る
     if (game.passStreak >= activeCount(game) || activeCount(game) < 2) {
       game.over = true;
+      game.pendingBlockOffer = null;
       return;
     }
     advanceTurn(game);
+    game.pendingBlockOffer = computeBlockOffer(game, by);
   }
 
   /** プレーヤーを手番巡回から外す (途中退出=継続時)。手番なら次へ送る */
@@ -723,6 +870,8 @@ const WordChain = (() => {
     if (!game.active[pid]) return;
     const wasTurn = currentPlayer(game) === pid;
     game.active[pid] = false;
+    if (game.pendingBlockOffer && game.pendingBlockOffer.playerId === pid) game.pendingBlockOffer = null;
+    if (game.pendingItemUse && game.pendingItemUse.playerId === pid) game.pendingItemUse = null;
     if (activeCount(game) < 2) {
       game.over = true;
       return;
@@ -746,7 +895,8 @@ const WordChain = (() => {
     canPlaceDir, hasAnyPlacement, validateMove, applyMove, applyPass, removePlayer,
     winners, emptyCellCount, bonusAppearProbability, reachableEmptyCells, pickBonusCells,
     relocateObstacles, obstacleCellList, OBSTACLE_MOVE_MAX_PER_TURN, useItem, blockableCells,
-    canUseItemNow,
+    canUseItemNow, generateItemCells, computeBlockOffer, declineBlockOffer, startClearWindow,
+    CLEAR_ITEM_WINDOW_MS,
   };
 })();
 

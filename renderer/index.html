@@ -141,13 +141,15 @@
         </label>
         <label class="field checkbox-field">
           <input id="lobby-items-mode" type="checkbox">
-          <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を使用可)</span>
+          <span>アイテムを有効にする (盤面の非表示マスから「クリア」「ブロック」「ワイルドカード」を拾って使用可)</span>
         </label>
         <label id="lobby-item-counts-field" class="field hidden item-counts-field">
-          <span>クリアの回数</span>
+          <span>クリアの配置数</span>
           <input id="lobby-item-clear-count" type="number" min="0" max="9" step="1" value="1">
-          <span>ブロックの回数</span>
+          <span>ブロックの配置数</span>
           <input id="lobby-item-block-count" type="number" min="0" max="9" step="1" value="1">
+          <span>ワイルドカードの配置数</span>
+          <input id="lobby-item-wildcard-count" type="number" min="0" max="9" step="1" value="1">
         </label>
         <label class="field checkbox-field">
           <input id="lobby-coop-mode" type="checkbox">
@@ -269,13 +271,15 @@
       </label>
       <label class="field checkbox-field">
         <input id="offline-items-mode" type="checkbox">
-        <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を使用可)</span>
+        <span>アイテムを有効にする (盤面の非表示マスから「クリア」「ブロック」「ワイルドカード」を拾って使用可)</span>
       </label>
       <label id="offline-item-counts-field" class="field hidden item-counts-field">
-        <span>クリアの回数</span>
+        <span>クリアの配置数</span>
         <input id="offline-item-clear-count" type="number" min="0" max="9" step="1" value="1">
-        <span>ブロックの回数</span>
+        <span>ブロックの配置数</span>
         <input id="offline-item-block-count" type="number" min="0" max="9" step="1" value="1">
+        <span>ワイルドカードの配置数</span>
+        <input id="offline-item-wildcard-count" type="number" min="0" max="9" step="1" value="1">
       </label>
       <div class="menu-buttons">
         <button id="btn-offline-start" class="btn primary">対戦を始める</button>
@@ -354,10 +358,9 @@
             <button class="dir-btn" data-dir="7">↘</button>
           </div>
         </div>
+        <div id="item-inventory" class="item-inventory hidden"></div>
         <div id="item-buttons" class="game-buttons hidden">
           <button id="btn-item-clear" class="btn">クリア</button>
-          <button id="btn-item-block" class="btn">ブロック</button>
-          <button id="btn-item-block-grace" class="btn hidden"></button>
           <button id="btn-item-cancel" class="btn hidden">対象選択をやめる</button>
         </div>
         <div class="game-buttons">
@@ -379,6 +382,12 @@
       <div id="word-pattern" class="pattern"></div>
       <p id="word-hint" class="muted"></p>
       <input id="word-input" type="text" maxlength="45" autocomplete="off" spellcheck="false" placeholder="ローマ字またはひらがなで入力">
+      <div id="wildcard-field" class="hidden">
+        <label for="wildcard-select">ワイルドカードで書き換えるマス</label>
+        <select id="wildcard-select">
+          <option value="">使わない</option>
+        </select>
+      </div>
       <p id="word-error" class="error"></p>
       <div id="word-propose" class="hidden">
         <p id="word-propose-text"></p>
@@ -404,6 +413,18 @@
       <div class="menu-buttons">
         <button id="btn-approve-yes" class="btn primary">承認する</button>
         <button id="btn-approve-no" class="btn warn">拒否する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ブロック使用確認モーダル(相手ターン開始時、時計を止めて表示) -->
+  <div id="modal-block-offer" class="modal hidden">
+    <div class="modal-box">
+      <h3>ブロックの使用</h3>
+      <p id="block-offer-text"></p>
+      <div class="menu-buttons">
+        <button id="btn-block-offer-yes" class="btn primary">使う</button>
+        <button id="btn-block-offer-no" class="btn">使わない</button>
       </div>
     </div>
   </div>
@@ -491,6 +512,8 @@
 
   <div id="chat-toast" class="chat-toast hidden"></div>
   <div id="bonus-toast" class="bonus-toast hidden"></div>
+  <div id="item-get-toast" class="item-get-toast hidden"></div>
+  <div id="clear-countdown" class="clear-countdown hidden"></div>
 
   <!-- 自動更新の状態表示 (画面下部に固定) -->
   <div id="update-banner" class="update-banner hidden">

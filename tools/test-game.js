@@ -220,14 +220,19 @@ assert(WC.normalizeSmallKana('がっこう') === 'がつこう', '促音を直�
 {
   const gt = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, territoryMode: true });
   assert(gt.territoryMode === true, 'territoryModeフラグがgameに反映される');
-  WC.applyMove(gt, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0'); // (3,3)あ(既存/初期)(3,4)か(既存/初期,一致)(3,5)り(新規)
+  let res1 = WC.applyMove(gt, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0'); // (3,3)あ(既存/初期)(3,4)か(既存/初期,一致)(3,5)り(新規)
   assert(gt.scores.p0 === 3, '陣取りモードでも自分の得点は単語の全文字数');
   assert(gt.owner[3][4] === 'p0', '初期文字マス(元は無所有)を通ると所有者になる (誰も減点されない)');
   assert(gt.scores.p1 === 0, '初期文字マスは元々無所有なので、通っても他人は減点されない');
-  WC.applyMove(gt, { r: 3, c: 5, dir: 6, word: 'りんご' }, 'p1'); // (3,5)り(p0所有)(4,5)ん...
+  assert(res1.captured.some(([r, c]) => r === 3 && c === 4), '初期文字マスの上書きもcapturedに含まれる(再描画用)');
+  assert(Object.keys(res1.territoryLosses).length === 0, '元々無所有のマスを通っても減点対象(territoryLosses)は無い');
+  const res2 = WC.applyMove(gt, { r: 3, c: 5, dir: 6, word: 'りんご' }, 'p1'); // (3,5)り(p0所有)(4,5)ん...
   assert(gt.scores.p0 === 2, '陣取りモード: 自分のマスをp1に通られたp0は1点減る (3->2)');
   assert(gt.owner[3][5] === 'p1', '通られたマスの所有者はp1に移る');
   assert(gt.scores.p1 === 3, 'p1は単語の全文字数を獲得 (通常通り)');
+  assert(res2.territoryLosses.p0 === 1, 'applyMoveの返り値に被害者(p0)の減点数が入る');
+  assert(gt.history[gt.history.length - 1].territoryLosses.p0 === 1, '履歴にも被害者の減点数が記録される(表示用)');
+  assert(res2.captured.some(([r, c]) => r === 3 && c === 5), '奪ったマスがcapturedに含まれる(再描画用)');
 
   // 通常モード(territoryMode省略)では所有者を通っても減点されない
   const gn = WC.newGame({ size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
@@ -382,7 +387,7 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
   assert(g.scores.p0 === 3, 'bonusMode無効ならbonusCellがあっても倍にならない');
 }
 
-// ---- アイテム: クリア(お邪魔マス解除)・ブロック(お邪魔マス設置) を試合開始前に設定した回数まで使える ----
+// ---- アイテム: 開始時は誰も所持しておらず、盤面の非表示アイテムマスに新しく文字を置くと入手する ----
 {
   const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
   const g = WC.newGame({
@@ -390,53 +395,140 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
     obstacleCells: [[0, 0]], itemsMode: true,
   });
   assert(g.itemsMode === true, 'itemsModeフラグがgameに反映される');
-  assert(g.items.p0.clear === 1 && g.items.p0.block === 1, '回数省略時は各アイテム1回ずつがデフォルト');
-
-  // クリア: 既存のお邪魔マス(0,0)を解除できる
-  let res = WC.useItem(g, 'p0', 'clear', 0, 0);
-  assert(res.ok === true, 'クリアで既存のお邪魔マスを解除できる');
-  assert(g.blocked[0][0] === false, '解除後はそのマスがお邪魔マスでなくなる');
-  assert(g.items.p0.clear === 0, 'クリア使用後はp0のクリアの残り回数が減る');
-
-  res = WC.useItem(g, 'p0', 'clear', 1, 1);
-  assert(res.ok === false, '残り回数が無くなれば、それ以降は失敗する');
-
-  // ブロック: 未入力マス(初期文字周囲2マス以外)に新しくお邪魔マスを配置できる
-  res = WC.useItem(g, 'p0', 'block', 0, 0);
-  assert(res.ok === true, 'ブロックで未入力マスに新しいお邪魔マスを配置できる');
-  assert(g.blocked[0][0] === true, '配置後はそのマスがお邪魔マスになる');
-  assert(g.items.p0.block === 0, 'ブロック使用後はp0のブロックの残り回数が減る');
-
-  res = WC.useItem(g, 'p0', 'block', 1, 1);
-  assert(res.ok === false, '残り回数が無くなれば、ブロックもそれ以降は失敗する');
-
-  // p1はp0とは独立してアイテムを持つ(手番をp1に渡してから確認する)
-  WC.applyPass(g);
-  assert(WC.currentPlayer(g) === 'p1', '手番がp1に移っている');
-  res = WC.useItem(g, 'p1', 'clear', 0, 0);
-  assert(res.ok === true, '他のプレーヤーのアイテム使用状況は独立している');
+  assert(g.items.p0.clear === 0 && g.items.p0.block === 0 && g.items.p0.wildcard === 0, '開始時は誰も所持していない(0個)');
+  assert(g.itemCells.clear.length === 1 && g.itemCells.block.length === 1 && g.itemCells.wildcard.length === 1,
+    '回数省略時は各アイテムのマスが1個ずつ盤面に配置される');
+  const seen = new Set();
+  for (const [r, c] of [...g.itemCells.clear, ...g.itemCells.block, ...g.itemCells.wildcard]) {
+    assert(!seen.has(r * 100 + c), 'アイテムマスは3種類とも重複しない');
+    seen.add(r * 100 + c);
+    assert(g.board[r][c] === null, 'アイテムマスは未入力(空白)マスに配置される');
+    assert(!(r === 0 && c === 0), 'アイテムマスはお邪魔マスの位置には配置されない');
+  }
 }
 {
-  // 回数はゲーム開始前に任意で設定できる(クリア・ブロックそれぞれ個別)
+  // アイテムマスの上に新しく文字を置くと入手できる(itemCellsから消え、所持数が増える)
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true,
+  });
+  g.itemCells = { clear: [[3, 5]], block: [[3, 6]], wildcard: [] };
+  const res = WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかりす' }, 'p0'); // (3,5)り (3,6)す が新規
+  assert(res.itemsGot.clear === 1 && res.itemsGot.block === 1 && res.itemsGot.wildcard === 0,
+    '経路上の新規マスに重なったアイテムを入手する');
+  assert(g.items.p0.clear === 1 && g.items.p0.block === 1, '入手したアイテムが所持数に加算される');
+  assert(g.itemCells.clear.length === 0 && g.itemCells.block.length === 0, '入手済みのアイテムマスは消える');
+}
+{
+  // アイテムマスに重ならなければ何も入手しない
+  const g = WC.newGame({
+    size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30, itemsMode: true,
+  });
+  g.itemCells = { clear: [[5, 5]], block: [], wildcard: [] }; // 単語が通らない位置
+  const res = WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
+  assert(res.itemsGot.clear === 0, '経路外のアイテムマスは入手しない');
+  assert(g.itemCells.clear.length === 1, '入手しなかったアイテムマスは残る');
+}
+{
+  // 配置数はゲーム開始前に個別に設定できる(クリア3・ブロック0・ワイルドカード2)
+  const g = WC.newGame({
+    size: 10, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 3, itemBlockCount: 0, itemWildcardCount: 2,
+  });
+  assert(g.itemCells.clear.length === 3, '指定した数(クリア3)のマスが配置される');
+  assert(g.itemCells.block.length === 0, '0を指定したアイテムは配置されない');
+  assert(g.itemCells.wildcard.length === 2, '指定した数(ワイルドカード2)のマスが配置される');
+}
+
+// ---- 「クリア」: 自分の手番中いつでも使用開始できる。開始時点で所持数を1消費し、5秒の猶予内に
+// 対象(お邪魔マス)を選べれば解除、選べなくても回数は戻らない ----
+{
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    obstacleCells: [[0, 0]], itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
+  });
+  g.items.p0.clear = 2;
+  let start = WC.startClearWindow(g, 'p0');
+  assert(start.ok === true, '自分の手番なら「クリア」の使用を開始できる');
+  assert(g.items.p0.clear === 1, '開始した時点で所持数が1消費される');
+  assert(g.pendingItemUse && g.pendingItemUse.playerId === 'p0' && g.pendingItemUse.item === 'clear',
+    '受付状態(pendingItemUse)がセットされる');
+
+  let res = WC.useItem(g, 'p0', 'clear', 0, 0);
+  assert(res.ok === true, '猶予内に対象(お邪魔マス)を選べば解除できる');
+  assert(g.blocked[0][0] === false, '解除後はそのマスがお邪魔マスでなくなる');
+  assert(g.pendingItemUse === null, '使用完了後は受付状態が閉じる');
+
+  // 2回目: 猶予切れの場合
+  start = WC.startClearWindow(g, 'p0');
+  assert(start.ok === true && g.items.p0.clear === 0, '2回目の開始でも所持数は消費される');
+  g.pendingItemUse.expiresAt = Date.now() - 1; // 猶予切れをシミュレート
+  res = WC.useItem(g, 'p0', 'clear', 1, 1);
+  assert(res.ok === false, '猶予が切れていれば対象を選んでも失敗する');
+  assert(g.items.p0.clear === 0, '失敗しても所持数は戻らない(開始時点で消費済み)');
+}
+{
+  // 所持数が無ければ開始できない。自分の手番でなければ開始できない
   const g = WC.newGame({
     size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
-    itemsMode: true, itemClearCount: 3, itemBlockCount: 0,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
   });
-  assert(g.items.p0.clear === 3 && g.items.p0.block === 0, '指定した回数(クリア3・ブロック0)がそれぞれ反映される');
-  assert(WC.useItem(g, 'p0', 'block', 0, 0).ok === false, '回数0で設定したアイテムは最初から使用できない');
-  for (let i = 0; i < 3; i++) {
-    const res = WC.useItem(g, 'p0', 'clear', 0, 0); // (0,0)はお邪魔マスではないため失敗するが、回数消費の有無を見る
-    assert(res.ok === false, 'お邪魔マスでないマスへのクリアは失敗する(回数は減らない)');
-  }
-  assert(g.items.p0.clear === 3, '失敗した使用では残り回数は減らない');
+  assert(WC.startClearWindow(g, 'p0').ok === false, '所持数が無ければ「クリア」を開始できない');
+  g.items.p0.clear = 1;
+  assert(WC.startClearWindow(g, 'p1').ok === false, '自分の手番でなければ「クリア」を開始できない');
+}
+
+// ---- 「ブロック」: 相手ターン開始時に、直前の手番プレーヤーが所持していれば使用確認オファーが
+// 開く。使わない場合は所持数を消費せず温存される(次に相手ターンが来た時にまた開く) ----
+{
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
+  });
+  assert(g.pendingBlockOffer === null, 'まだ誰も手番を終えていないのでオファーは無い');
+  assert(WC.canUseItemNow(g, 'p0', 'block') === false, 'オファーが無ければ「ブロック」は使えない');
+
+  g.items.p0.block = 1;
+  WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
+  assert(WC.currentPlayer(g) === 'p1', '手番がp1に移っている');
+  assert(g.pendingBlockOffer && g.pendingBlockOffer.playerId === 'p0',
+    'p0がブロックを持っているので、p1のターン開始時にp0への使用確認オファーが開く');
+  assert(WC.canUseItemNow(g, 'p0', 'block') === true, 'オファー中のp0は「ブロック」を使える');
+  assert(WC.canUseItemNow(g, 'p1', 'block') === false, 'p1自身はオファーの対象ではない');
+
+  // 使わない(温存): 所持数は減らず、次にまた相手ターンが来た時に再度開く
+  WC.declineBlockOffer(g, 'p0');
+  assert(g.pendingBlockOffer === null, '断るとオファーは閉じる');
+  assert(g.items.p0.block === 1, '断っても所持数は減らない(温存)');
+
+  WC.applyPass(g); // p1がパス、手番はp0に戻る
+  assert(WC.currentPlayer(g) === 'p0', '手番がp0に戻っている');
+  assert(g.pendingBlockOffer === null, 'p0自身の手番開始時にはオファーは開かない(相手が持っている場合のみ)');
+
+  // p0が単語を置いて手番をp1に渡す(2連続パスにするとゲームが終了してしまうため、実際に手を置く)
+  WC.applyMove(g, { r: 3, c: 5, dir: 6, word: 'りご' }, 'p0'); // (3,5)り(p0所有,一致) (4,5)ご(新規)
+  assert(g.pendingBlockOffer && g.pendingBlockOffer.playerId === 'p0',
+    '温存されていたので、次にp1のターンが来た時に再びp0へのオファーが開く');
+
+  // 使う(応諾): 所持数が減り、オファーは閉じる
+  const res = WC.useItem(g, 'p0', 'block', 0, 0);
+  assert(res.ok === true, 'オファー中に対象を選んで「ブロック」を使用できる');
+  assert(g.blocked[0][0] === true, '指定したマスがお邪魔マスになる');
+  assert(g.items.p0.block === 0, '使用すると所持数が減る');
+  assert(g.pendingBlockOffer === null, '使用後はオファーが閉じる');
 }
 {
   // ブロックは初期文字マスの周囲2マス以内には配置できない
   const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
   const g = WC.newGame({
     size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
-    itemsMode: true,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
   });
+  g.items.p0.block = 1;
+  g.pendingBlockOffer = { playerId: 'p0' };
   const res = WC.useItem(g, 'p0', 'block', 3, 5); // 初期文字マスの周囲2マス以内
   assert(res.ok === false, 'ブロックは初期文字マスの周囲2マス以内には配置できない');
 }
@@ -446,35 +538,63 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
   const res = WC.useItem(g, 'p0', 'clear', 0, 0);
   assert(res.ok === false, 'itemsModeが無効ならアイテムは使用できない');
 }
-// ---- アイテムの使用タイミング(猶予): 「ブロック」は自分の手番が終わっても、次のプレーヤーが
-// 手を確定するまで引き続き使える。「クリア」は自分の手番中のみ(猶予なし)。
-// (3人対戦にして、p0の猶予がp1の行動で終わることをp0自身が再び手番になる前に確認する) ----
+
+// ---- 「ワイルドカード」: 単語の経路上にある既存の文字を1つ選び、任意の文字に書き換えて確定できる ----
 {
+  // (3,3)あ (3,4)か (3,5)り(新規) の単語で、2文字目(か, 既存)をワイルドカードで「き」に書き換える
   const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
   const g = WC.newGame({
-    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1', 'p2'], first: 0, timeLimit: 30,
-    itemsMode: true,
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
   });
-  assert(WC.canUseItemNow(g, 'p0', 'clear') === true, '自分の手番なら「クリア」を使える');
-  assert(WC.canUseItemNow(g, 'p0', 'block') === true, '自分の手番なら「ブロック」を使える');
-  assert(WC.canUseItemNow(g, 'p1', 'clear') === false, '自分の手番でなければ(猶予も無ければ)「クリア」は使えない');
-  assert(WC.canUseItemNow(g, 'p1', 'block') === false, '自分の手番でなければ(猶予も無ければ)「ブロック」も使えない');
-  assert(g.itemGraceId === null, 'まだ誰も手番を終えていないので猶予は無い');
-
-  // p0が単語を置いて手番がp1に移った後も、p0はまだ「ブロック」を使える(猶予中)
-  WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0');
-  assert(WC.currentPlayer(g) === 'p1', '手番がp1に移っている');
-  assert(g.itemGraceId === 'p0', 'p0が直前に手番を終えたプレーヤーとして記録される');
-  assert(WC.canUseItemNow(g, 'p0', 'block') === true, 'p0は猶予中なので「ブロック」をまだ使える');
-  assert(WC.canUseItemNow(g, 'p0', 'clear') === false, 'p0はもう自分の手番ではないので「クリア」は使えない(猶予なし)');
-  const res = WC.useItem(g, 'p0', 'block', 0, 0);
-  assert(res.ok === true, '猶予中のp0は実際に「ブロック」を使用できる');
-
-  // p1が手番を終える(パス、手番はp2に移る)と、p0の猶予は終わる
-  WC.applyPass(g);
-  assert(WC.currentPlayer(g) === 'p2', '手番がp2に移っている(p0にはまだ戻らない)');
-  assert(g.itemGraceId === 'p1', '次はp1が直前に手番を終えたプレーヤーになる(p0の猶予は上書きされて終了)');
-  assert(WC.canUseItemNow(g, 'p0', 'block') === false, '相手(p1)が手を確定した後は、p0はもう「ブロック」を使えない');
+  g.items.p0.wildcard = 1;
+  const move = { r: 3, c: 3, dir: 4, word: 'あきり', wildcardIndex: 1 };
+  const v = WC.validateMove(g, move, null);
+  assert(v.ok === true, 'ワイルドカードで既存文字との不一致を許容して検証を通せる');
+  const res = WC.applyMove(g, move, 'p0');
+  assert(g.board[3][4] === 'き', '盤面のその文字が実際に書き換わる');
+  assert(g.owner[3][4] === 'p0', '書き換えたマスの所有権はp0に移る');
+  assert(g.items.p0.wildcard === 0, 'ワイルドカード使用後は所持数が減る');
+  assert(res.captured.some(([r, c]) => r === 3 && c === 4), 'applyMoveの返り値に書き換えたマスが含まれる(再描画用)');
+}
+{
+  // ワイルドカードの所持数が無ければ使えない
+  const g = WC.newGame({
+    size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
+  });
+  const move = { r: 3, c: 3, dir: 4, word: 'あきり', wildcardIndex: 1 };
+  const v = WC.validateMove(g, move, new Set(['あ', 'い', 'う', 'え', 'お']));
+  assert(v.ok === false, 'ワイルドカードの所持数が無ければ使用できない');
+}
+{
+  // ワイルドカードは新規(未入力)マスには使えない
+  const g = WC.newGame({
+    size: 8, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
+  });
+  g.items.p0.wildcard = 1;
+  const move = { r: 3, c: 3, dir: 4, word: 'あきり', wildcardIndex: 2 }; // 3文字目(り)は新規マス
+  const v = WC.validateMove(g, move, new Set(['あ', 'い', 'う', 'え', 'お']));
+  assert(v.ok === false, 'ワイルドカードは既存の文字のマスにのみ使える(新規マスには使えない)');
+}
+{
+  // 陣取りモードでワイルドカードを使うと、相手の文字を書き換えて得点も奪える
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0, territoryMode: true,
+  });
+  g.items.p1.wildcard = 1;
+  WC.applyMove(g, { r: 3, c: 3, dir: 4, word: 'あかり' }, 'p0'); // (3,3)あ(3,4)か(3,5)り(新規)。p0が3マスとも所有、+3点
+  assert(g.owner[3][4] === 'p0' && g.scores.p0 === 3, '前提: p0が(3,4)を所有し3点獲得している');
+  // p1が(3,5)から左方向へ「りきあこ」(wildcardIndex=1で(3,4)の「か」を「き」に書き換え)。
+  // 陣取りモードでは経路上の(3,5)(3,4)(3,3)すべてがp0所有からp1所有に奪われる(計3点減)。
+  const res = WC.applyMove(g, { r: 3, c: 5, dir: 3, word: 'りきあこ', wildcardIndex: 1 }, 'p1');
+  assert(g.board[3][4] === 'き', '陣取りモードでもワイルドカードで文字が書き換わる');
+  assert(g.owner[3][4] === 'p1', '書き換えたマスの所有権はp1に移る');
+  assert(g.scores.p0 === 0, '奪われたマス(通常のchar一致マス2つ+ワイルドカード1つ)の分だけp0の得点が減る(3-3=0)');
+  assert(res.territoryLosses.p0 === 3, 'applyMoveの返り値にも被害者の合計減点数が入る');
 }
 
 // ---- お邪魔マス移動: 未入力マスが盤面の半分になるまで、毎ターン1マスだけランダムに再配置される ----

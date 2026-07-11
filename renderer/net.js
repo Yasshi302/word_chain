@@ -71,7 +71,24 @@ const Net = (() => {
   function itemCountOk(v) { return Number.isInteger(v) && v >= 0 && v <= ITEM_COUNT_MAX; }
   function itemsInventoryOk(v) {
     return v && typeof v === 'object' && Object.values(v).every((inv) => inv && typeof inv === 'object'
-      && Number.isInteger(inv.clear) && inv.clear >= 0 && Number.isInteger(inv.block) && inv.block >= 0);
+      && Number.isInteger(inv.clear) && inv.clear >= 0
+      && Number.isInteger(inv.block) && inv.block >= 0
+      && Number.isInteger(inv.wildcard) && inv.wildcard >= 0);
+  }
+  function itemCellsOk(v, size) {
+    return v && typeof v === 'object'
+      && cellsOk(v.clear, size, 0, size * size) && cellsOk(v.block, size, 0, size * size)
+      && cellsOk(v.wildcard, size, 0, size * size);
+  }
+  function pendingBlockOfferOk(v) {
+    return v === null || v === undefined || (v && typeof v === 'object' && typeof v.playerId === 'string');
+  }
+  function pendingItemUseOk(v) {
+    return v === null || v === undefined || (v && typeof v === 'object'
+      && typeof v.playerId === 'string' && v.item === 'clear' && Number.isFinite(v.expiresAt));
+  }
+  function wildcardIndexOk(v) {
+    return v === undefined || v === null || (Number.isInteger(v) && v >= 0 && v < 15);
   }
 
   // ゲーム系メッセージ種別ごとの検証 (認証系は別処理)。
@@ -82,13 +99,16 @@ const Net = (() => {
     'move': (m) => Number.isInteger(m.r) && m.r >= 0 && m.r < 15
       && Number.isInteger(m.c) && m.c >= 0 && m.c < 15
       && Number.isInteger(m.dir) && m.dir >= 0 && m.dir < 8
-      && typeof m.word === 'string' && HIRA_WORD.test(m.word),
+      && typeof m.word === 'string' && HIRA_WORD.test(m.word)
+      && wildcardIndexOk(m.wildcardIndex),
     'pass': () => true,
     'approve-vote': (m) => typeof m.ok === 'boolean',
     'rematch-vote': (m) => typeof m.ok === 'boolean',
     'leave': () => true,
     'updating': () => true,
     'use-item': (m) => itemNameOk(m.item) && coordOk(m.r) && coordOk(m.c),
+    'use-item-start': (m) => m.item === 'clear',
+    'decline-block-offer': () => true,
     // --- host -> guest ---
     'welcome': (m) => typeof m.you === 'string' && m.you.length <= 8,
     'lobby': (m) => Array.isArray(m.players) && m.players.length <= 4,
@@ -103,7 +123,7 @@ const Net = (() => {
       && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
       && typeof m.itemsMode === 'boolean' && typeof m.coopMode === 'boolean'
       && (!m.coopMode || coopLevelOk(m.coopCpuLevel))
-      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount))),
+      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount) && itemCountOk(m.itemWildcardCount))),
     'begin': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && cellsOk(m.initialCells, m.size, 1, 10)
       && Array.isArray(m.initialLetters) && m.initialLetters.length === m.initialCells.length
@@ -112,7 +132,7 @@ const Net = (() => {
       && scoringModeOk(m.scoringMode)
       && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
       && typeof m.itemsMode === 'boolean'
-      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount)))
+      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount) && itemCountOk(m.itemWildcardCount)))
       && Number.isInteger(m.first) && m.first >= 0 && m.first < 4,
     'turn': (m) => typeof m.by === 'string' && Number.isFinite(m.remainingMs)
       && cellOrNullOk(m.bonusFlatCell) && bonusFlatValueOk(m.bonusFlatValue)
@@ -125,6 +145,8 @@ const Net = (() => {
     'pass-applied': (m) => typeof m.by === 'string',
     'item-applied': (m) => typeof m.by === 'string' && itemNameOk(m.item) && coordOk(m.r) && coordOk(m.c),
     'item-rejected': (m) => m.reason === undefined || typeof m.reason === 'string',
+    'item-window-start': (m) => typeof m.by === 'string' && m.item === 'clear' && Number.isFinite(m.expiresAt),
+    'block-offer': (m) => typeof m.playerId === 'string',
     'approve-start': (m) => typeof m.by === 'string' && typeof m.word === 'string' && HIRA_WORD.test(m.word),
     'approve-progress': (m) => Number.isFinite(m.got) && Number.isFinite(m.need),
     'approve-end': () => true,
@@ -144,8 +166,9 @@ const Net = (() => {
       && cellOrNullOk(m.bonusFlatCell) && bonusFlatValueOk(m.bonusFlatValue)
       && cellOrNullOk(m.bonusMultCell) && bonusMultValueOk(m.bonusMultValue)
       && typeof m.obstacleMove === 'boolean'
-      && typeof m.itemsMode === 'boolean' && (!m.itemsMode || itemsInventoryOk(m.items))
-      && (m.itemGraceId === undefined || m.itemGraceId === null || typeof m.itemGraceId === 'string'),
+      && typeof m.itemsMode === 'boolean'
+      && (!m.itemsMode || (itemsInventoryOk(m.items) && itemCellsOk(m.itemCells, m.size)))
+      && pendingBlockOfferOk(m.pendingBlockOffer) && pendingItemUseOk(m.pendingItemUse),
     'rematch-lobby': () => true,
     'rematch-progress': (m) => Number.isFinite(m.got) && Number.isFinite(m.need),
     'hb': () => true,

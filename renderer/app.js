@@ -29,7 +29,7 @@
   let obstacleMoveOn = false;     // お邪魔マス移動オプションの有無
   let scoringMode = 'normal';     // 'normal' (通常) | 'territory' (陣取り)
   let bonusModeOn = false;        // ボーナスマスオプションの有無
-  let itemsModeOn = false;        // アイテム(クリア・ブロック)オプションの有無
+  let itemsModeOn = false;        // アイテム(クリア・ブロック・ワイルドカード)オプションの有無
   let coopModeOn = false;         // 協力モード(CPU1体 vs プレーヤー全員)の有無
   let coopCpuLevel = 'normal';    // 協力モードCPUの強さ ('weak'|'normal'|'strong'|'strongest')
   let savedName = '';             // アプリ終了まで保持する自分の名前 (オンライン)
@@ -37,9 +37,12 @@
   let pendingMove = null;
   let localProposal = null;
   let cellEls = [];
-  let itemTargetMode = null;      // { item:'clear'|'block', playerId } | null (アイテムの対象マスを選んでいる最中)
-  let itemClearCount = 1;         // アイテム「クリア」の使用回数 (試合開始前設定、1人あたり)
-  let itemBlockCount = 1;         // アイテム「ブロック」の使用回数 (試合開始前設定、1人あたり)
+  let itemTargetMode = null;      // { item:'clear', playerId } | null (「クリア」の対象マスを選んでいる最中)
+  let itemClearCount = 1;         // アイテム「クリア」の盤面への配置数 (試合開始前設定)
+  let itemBlockCount = 1;         // アイテム「ブロック」の盤面への配置数 (試合開始前設定)
+  let itemWildcardCount = 1;      // アイテム「ワイルドカード」の盤面への配置数 (試合開始前設定)
+  let clearCountdownTimer = null; // 「クリア」使用受付中のカウントダウン表示用interval
+  let blockOfferShownFor = null;  // 直近に表示したブロック確認オファーのplayerId (再描画の重複防止)
 
   let cpuWordIndex = null;        // CPU用: 先頭文字×文字数でグルーピングした辞書索引
   let cpuStartCharCounts = null;  // CPU用: 先頭文字の頻度 (相手の続けやすさの目安)
@@ -93,6 +96,9 @@
   function isMyInputTurn() {
     if (!game || game.over || phase !== 'game') return false;
     if (pendingMove || approval || localProposal) return false;
+    // 「ブロック」使用確認オファーが解決するまでは、新しい手番はまだ開始していない扱いにする
+    // (相手ターン開始時に時計を止めている間、次の手番プレーヤーが先に動けてしまうのを防ぐ)
+    if (game.pendingBlockOffer) return false;
     if (mode === 'offline') return !isCpuTurn();
     return WordChain.currentPlayer(game) === myId;
   }
@@ -106,7 +112,7 @@
   function hideModal(id) { $(id).classList.add('hidden'); }
   function hideAllModals() {
     ['modal-word', 'modal-approve', 'modal-confirm', 'modal-disconnect',
-      'modal-result', 'modal-overlay', 'modal-notice'].forEach(hideModal);
+      'modal-result', 'modal-overlay', 'modal-notice', 'modal-block-offer'].forEach(hideModal);
   }
   function notice(text) { $('notice-text').textContent = text; showModal('modal-notice'); }
   function overlay(text) { $('overlay-text').textContent = text; showModal('modal-overlay'); }
@@ -347,6 +353,17 @@
     });
     if (placed.length) setTimeout(() => Sound.sfx('word'), placed.length * 110 + 40);
   }
+  // 陣取りモードでの上書き・ワイルドカードでの書き換えなど、既存マスの所有者や文字が
+  // 変わったセルを再描画する(buildBoardDOMは初回しか塗らないため、ここで反映する)。
+  function renderCaptured(captured, byId) {
+    if (!captured || !captured.length) return;
+    for (const [r, c] of captured) {
+      const el = cellEls[r][c];
+      el.textContent = game.board[r][c];
+      el.classList.remove('p0', 'p1', 'p2', 'p3', 'initial');
+      el.classList.add(colorOf(byId));
+    }
+  }
   function renderChain() {
     for (const row of cellEls) for (const el of row) el.classList.remove('chain');
     if (game.chain && !game.over) cellEls[game.chain.r][game.chain.c].classList.add('chain');
@@ -386,6 +403,32 @@
       setTimeout(() => el.classList.remove('bonus-flash'), 1300);
     }
   }
+  const ITEM_LABEL = { clear: 'クリア', block: 'ブロック', wildcard: 'ワイルドカード' };
+  let itemGetToastTimer = null;
+  // アイテムマスを入手した瞬間の演出: 画面中心に「アイテムGET!〇〇〇」を表示し、効果音を鳴らす。
+  // 1手で複数入手した場合は種類ごとに順番に表示する。
+  function showItemGet(itemsGot) {
+    if (!itemsGot) return;
+    const names = [];
+    for (const kind of ['clear', 'block', 'wildcard']) {
+      for (let i = 0; i < (itemsGot[kind] || 0); i++) names.push(ITEM_LABEL[kind]);
+    }
+    if (names.length === 0) return;
+    let i = 0;
+    const showNext = () => {
+      if (i >= names.length) return;
+      $('item-get-toast').textContent = `アイテムGET！${names[i]}`;
+      $('item-get-toast').classList.remove('hidden');
+      Sound.sfx('itemGet');
+      if (itemGetToastTimer) clearTimeout(itemGetToastTimer);
+      itemGetToastTimer = setTimeout(() => {
+        $('item-get-toast').classList.add('hidden');
+        i++;
+        if (i < names.length) setTimeout(showNext, 200);
+      }, 1600);
+    };
+    showNext();
+  }
   // アイテムの対象選択中、クリア対象(お邪魔マス)/ブロック対象(未入力マス)をハイライトする
   function renderItemTargets() {
     for (let r = 0; r < game.size; r++) for (let c = 0; c < game.size; c++) cellEls[r][c].classList.remove('item-target-clear', 'item-target-block');
@@ -396,42 +439,21 @@
       for (const [r, c] of WordChain.blockableCells(game)) cellEls[r][c].classList.add('item-target-block');
     }
   }
-  // アイテムボタンの表示・有効/無効を、手番・アイテム使用状況・対象選択中かどうかに応じて更新する。
-  // 「ブロック」は自分が使い終えても、次のプレーヤーが手を確定するまで引き続き使える
-  // (game.itemGraceId)。オンラインは自分自身の在庫だけを見ればよいが、オフラインは共有画面
-  // のため、現在の手番プレーヤーとは別に「まだ猶予中の前の手番プレーヤー」用のボタンも出す。
+  // アイテムボタンの表示・有効/無効・所持数表示を更新する。「ブロック」は専用のボタンを持たず、
+  // 相手ターン開始時の使用確認モーダル(showBlockOfferModal)からのみ使用できる。
+  // 「ワイルドカード」も専用ボタンを持たず、単語入力モーダル内から使用する。
   function updateItemButtons() {
     const wrap = $('item-buttons');
-    const graceBtn = $('btn-item-block-grace');
-    if (!game || !game.itemsMode) { wrap.classList.add('hidden'); graceBtn.classList.add('hidden'); return; }
-    wrap.classList.remove('hidden');
+    const invBox = $('item-inventory');
+    if (!game || !game.itemsMode) { wrap.classList.add('hidden'); invBox.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden'); invBox.classList.remove('hidden');
     const busy = !!itemTargetMode;
-    const cur = WordChain.currentPlayer(game);
-    if (mode === 'offline') {
-      const inv = (game.items && game.items[cur]) || { clear: 0, block: 0 };
-      const canAct = isMyInputTurn() && !busy;
-      $('btn-item-clear').disabled = !canAct || inv.clear <= 0;
-      $('btn-item-block').disabled = !canAct || inv.block <= 0;
-      $('btn-item-clear').classList.toggle('primary', !!itemTargetMode && itemTargetMode.item === 'clear' && itemTargetMode.playerId === cur);
-      $('btn-item-block').classList.toggle('primary', !!itemTargetMode && itemTargetMode.item === 'block' && itemTargetMode.playerId === cur);
-      const graceId = game.itemGraceId;
-      const graceInv = graceId && game.items[graceId];
-      const graceAvailable = !busy && graceId && graceId !== cur && graceInv && graceInv.block > 0
-        && WordChain.canUseItemNow(game, graceId, 'block');
-      graceBtn.classList.toggle('hidden', !graceAvailable);
-      if (graceAvailable) graceBtn.textContent = `${nameOf(graceId)}の「ブロック」を使う`;
-      else graceBtn.classList.toggle('primary', false);
-      if (graceAvailable) graceBtn.classList.toggle('primary', !!itemTargetMode && itemTargetMode.item === 'block' && itemTargetMode.playerId === graceId);
-    } else {
-      const inv = (game.items && game.items[myId]) || { clear: 0, block: 0 };
-      const clearCanAct = isMyInputTurn() && !busy;
-      const blockCanAct = !busy && WordChain.canUseItemNow(game, myId, 'block');
-      $('btn-item-clear').disabled = !clearCanAct || inv.clear <= 0;
-      $('btn-item-block').disabled = !blockCanAct || inv.block <= 0;
-      $('btn-item-clear').classList.toggle('primary', !!itemTargetMode && itemTargetMode.item === 'clear');
-      $('btn-item-block').classList.toggle('primary', !!itemTargetMode && itemTargetMode.item === 'block');
-      graceBtn.classList.add('hidden');
-    }
+    const viewerId = mode === 'offline' ? WordChain.currentPlayer(game) : myId;
+    const inv = (game.items && game.items[viewerId]) || { clear: 0, block: 0, wildcard: 0 };
+    invBox.textContent = `所持アイテム: クリア${inv.clear} / ブロック${inv.block} / ワイルドカード${inv.wildcard}`;
+    const canClear = isMyInputTurn() && !busy && inv.clear > 0 && !game.pendingItemUse;
+    $('btn-item-clear').disabled = !canClear;
+    $('btn-item-clear').classList.toggle('primary', !!itemTargetMode && itemTargetMode.item === 'clear');
     $('btn-item-cancel').classList.toggle('hidden', !itemTargetMode);
   }
   function renderScores() {
@@ -458,11 +480,23 @@
     $('turn-indicator').textContent = game.over ? 'ゲーム終了'
       : (mode !== 'offline' && cur === myId) ? 'あなたの番です' : `${nameOf(cur)}の番です`;
   }
-  function addHistoryWord(word, byId, points) {
+  // h: 履歴エントリ (game.history[i] 相当)。{points, territoryLosses, wildcardUsed} を参照する。
+  function addHistoryWord(word, byId, h) {
+    if (h && h.territoryLosses) {
+      // 陣取りモードで他プレーヤーのマスを奪った場合、被害者の減点を先に表示しておく
+      // (prependの都合上、単語本体より先に追加すると単語の直下に並ぶ)
+      for (const [pid, lost] of Object.entries(h.territoryLosses)) {
+        const lli = document.createElement('li');
+        lli.className = 'territory-loss-entry ' + colorOf(pid);
+        lli.textContent = `${nameOf(pid)}さん: -${lost}点`;
+        $('history').prepend(lli);
+      }
+    }
     const li = document.createElement('li');
     li.className = colorOf(byId);
-    const pts = Number.isFinite(points) ? points : [...word].length;
-    li.textContent = `${nameOf(byId)}: ${word} (+${pts})`;
+    const pts = h && Number.isFinite(h.points) ? h.points : [...word].length;
+    const wildcardNote = h && h.wildcardUsed ? ' (ワイルドカード使用)' : '';
+    li.textContent = `${nameOf(byId)}: ${word} (+${pts})${wildcardNote}`;
     $('history').prepend(li);
   }
   function addHistoryPass(byId) {
@@ -494,7 +528,7 @@
       initialCells: opts.initialCells, initialLetters: opts.initialLetters, obstacleCells: opts.obstacleCells,
       territoryMode: opts.scoringMode === 'territory',
       bonusMode: !!opts.bonusMode, obstacleMove: !!opts.obstacleMove, itemsMode: !!opts.itemsMode,
-      itemClearCount: opts.itemClearCount, itemBlockCount: opts.itemBlockCount,
+      itemClearCount: opts.itemClearCount, itemBlockCount: opts.itemBlockCount, itemWildcardCount: opts.itemWildcardCount,
     });
     itemTargetMode = null;
     pendingMove = null; localProposal = null; approval = null;
@@ -529,9 +563,23 @@
     // itemTargetModeは特定のプレーヤー(playerId)に紐づくため、手番が変わったら
     // (自動パス等で選択中だった場合)持ち越さないようにリセットする
     itemTargetMode = null;
-    hideDirPanel(); hideModal('modal-word');
+    stopClearCountdownUI();
+    hideDirPanel(); hideModal('modal-word'); hideBlockOfferModal();
     refreshAll();
     if (game.over) { onGameOver(); return; }
+    // 「ブロック」使用確認オファーが開いている間は、新しい手番のタイマーを開始せず
+    // (相手ターン開始時に時計を止める)、オファーが解決されるまで待つ
+    if (isAuthority() && game.pendingBlockOffer) {
+      const holderId = game.pendingBlockOffer.playerId;
+      if (entryOf(holderId) && entryOf(holderId).cpuLevel) {
+        // CPUはアイテムを使う判断ロジックを持たないため、常に自動的に見送る
+        authorityDeclineBlockOffer(holderId);
+        return;
+      }
+      if (mode === 'online-host') Net.broadcast({ t: 'block-offer', playerId: holderId });
+      showBlockOfferModal(holderId);
+      return;
+    }
     const cur = WordChain.currentPlayer(game);
     if (isAuthority()) {
       const ms = timeLimitSec > 0 ? timeLimitSec * 1000 : -1;
@@ -607,16 +655,23 @@
     game.bonusMultValue = bonus.multiplier ? bonus.multiplier.value : null;
   }
   function authorityApplyMove(move, byId, approved) {
-    const { placed, flatValue, multValue } = WordChain.applyMove(game, move, byId);
+    const { placed, captured, flatValue, multValue, itemsGot } = WordChain.applyMove(game, move, byId);
     const flatCell = flatValue ? game.bonusFlatCell : null;
     const multCell = multValue ? game.bonusMultCell : null;
     renderPlaced(placed, byId);
+    renderCaptured(captured, byId);
     drawLastWordLine(move, byId);
-    addHistoryWord(move.word, byId, game.history[game.history.length - 1].points);
+    addHistoryWord(move.word, byId, game.history[game.history.length - 1]);
     if (approved) Sound.sfx('approve');
     if (flatValue || multValue) showBonusGet(flatValue, multValue, flatCell, multCell);
+    showItemGet(itemsGot);
     advanceHazards();
-    if (mode === 'online-host') Net.broadcast({ t: 'move-applied', by: byId, r: move.r, c: move.c, dir: move.dir, word: move.word, approved: !!approved });
+    if (mode === 'online-host') {
+      Net.broadcast({
+        t: 'move-applied', by: byId, r: move.r, c: move.c, dir: move.dir, word: move.word,
+        wildcardIndex: move.wildcardIndex, approved: !!approved,
+      });
+    }
     onTurnStart();
   }
   function authorityPass(byId, timeout) {
@@ -649,15 +704,21 @@
   }
 
   // ---------------- 権威: アイテム使用 (手番は消費しない) ----------------
-  // 使用可否(自分の手番か、「ブロック」の猶予期間中か)はWordChain.useItem内で判定する
+  // 使用可否(自分の手番か、「ブロック」の使用確認オファー中か)はWordChain.useItem内で判定する
   function authorityUseItem(byId, item, r, c) {
     if (!game || game.over) return;
+    const wasBlockOffer = item === 'block';
     const res = WordChain.useItem(game, byId, item, r, c);
     if (!res.ok) { rejectItemTo(byId, res.reason); return; }
     addHistoryItem(byId, item);
     renderHazards();
+    itemTargetMode = null;
+    if (item === 'clear') stopClearCountdownUI();
+    renderItemTargets();
     updateItemButtons();
     if (mode === 'online-host') Net.broadcast({ t: 'item-applied', by: byId, item, r, c });
+    // 「ブロック」はオファーの解決によって保留していたターン開始処理(タイマー開始・'turn'配信)を進める
+    if (wasBlockOffer) onTurnStart();
   }
   function rejectItemTo(byId, reason) {
     if (mode === 'online-host' && byId !== myId) {
@@ -672,7 +733,74 @@
     WordChain.useItem(game, m.by, m.item, m.r, m.c);
     addHistoryItem(m.by, m.item);
     renderHazards();
+    itemTargetMode = null;
+    if (m.item === 'clear') stopClearCountdownUI();
+    renderItemTargets();
     updateItemButtons();
+  }
+
+  // ---------------- 権威: 「クリア」の使用受付開始 (5秒の猶予) ----------------
+  function startClearItem() {
+    if ($('btn-item-clear').disabled) return;
+    const playerId = mode === 'offline' ? WordChain.currentPlayer(game) : myId;
+    if (mode === 'online-guest') Net.sendHost({ t: 'use-item-start', item: 'clear' });
+    else authorityStartClearWindow(playerId);
+  }
+  function authorityStartClearWindow(playerId) {
+    if (!game || game.over) return;
+    const res = WordChain.startClearWindow(game, playerId);
+    if (!res.ok) { rejectItemTo(playerId, res.reason); return; }
+    if (mode === 'offline' || playerId === myId) {
+      itemTargetMode = { item: 'clear', playerId };
+      renderItemTargets();
+      updateItemButtons();
+    } else {
+      setStatus(`${nameOf(playerId)}が「クリア」を使用中...`);
+    }
+    startClearCountdownUI(res.expiresAt);
+    if (mode === 'online-host') Net.broadcast({ t: 'item-window-start', by: playerId, item: 'clear', expiresAt: res.expiresAt });
+  }
+  function startClearCountdownUI(expiresAt) {
+    const el = $('clear-countdown');
+    el.classList.remove('hidden');
+    if (clearCountdownTimer) clearInterval(clearCountdownTimer);
+    const tick = () => {
+      const remain = Math.ceil((expiresAt - Date.now()) / 1000);
+      if (remain <= 0) {
+        stopClearCountdownUI();
+        // 猶予切れ: 対象を選べなかった場合は選択状態を解除する(所持数は開始時点で消費済み)
+        if (itemTargetMode && itemTargetMode.item === 'clear') {
+          itemTargetMode = null; renderItemTargets(); updateItemButtons();
+        }
+        return;
+      }
+      el.textContent = String(remain);
+      el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+    };
+    tick();
+    clearCountdownTimer = setInterval(tick, 1000);
+  }
+  function stopClearCountdownUI() {
+    if (clearCountdownTimer) { clearInterval(clearCountdownTimer); clearCountdownTimer = null; }
+    $('clear-countdown').classList.add('hidden');
+  }
+
+  // ---------------- 権威: 「ブロック」使用確認オファー (相手ターン開始時) ----------------
+  function showBlockOfferModal(holderId) {
+    if (mode === 'offline' || holderId === myId) {
+      $('block-offer-text').textContent = mode === 'offline'
+        ? `${nameOf(holderId)}さん、「ブロック」を使いますか?`
+        : 'あなたは「ブロック」を持っています。使いますか?';
+      showModal('modal-block-offer');
+    } else {
+      setStatus(`${nameOf(holderId)}がブロックの使用を検討中です...`);
+    }
+  }
+  function hideBlockOfferModal() { hideModal('modal-block-offer'); }
+  function authorityDeclineBlockOffer(byId) {
+    if (!game || !game.pendingBlockOffer || game.pendingBlockOffer.playerId !== byId) return;
+    WordChain.declineBlockOffer(game, byId);
+    onTurnStart(); // オファーが閉じたので、保留していたターン開始処理を進める
   }
 
   // 承認 (権威)
@@ -724,7 +852,7 @@
       pendingMove = move;
       hideModal('modal-word'); hideDirPanel(); updateBoardInteractivity();
       setStatus(inDict(move.word) ? '判定中...' : '承認を待っています...');
-      Net.sendHost({ t: 'move', r: move.r, c: move.c, dir: move.dir, word: move.word });
+      Net.sendHost({ t: 'move', r: move.r, c: move.c, dir: move.dir, word: move.word, wildcardIndex: move.wildcardIndex });
     } else {
       hideModal('modal-word'); hideDirPanel();
       authorityHandleMove(WordChain.currentPlayer(game), move);
@@ -781,6 +909,7 @@
     const L = WordChain.maxLen(game, r, c, dir);
     const cells = WordChain.rayCells(r, c, dir, L);
     const pat = $('word-pattern'); pat.innerHTML = '';
+    const fixedIndices = [];
     for (let i = 0; i < L; i++) {
       const [cr, cc] = cells[i];
       const p = document.createElement('div');
@@ -788,6 +917,7 @@
       p.className = 'pcell ' + (ch ? 'fixed' : 'empty');
       p.textContent = ch || '';
       pat.appendChild(p);
+      if (ch) fixedIndices.push(i);
     }
     $('word-hint').textContent = `「${game.board[r][c]}」から始まる 2〜${L} 文字。文字がある位置はその文字と一致させてください。`;
     const inp = $('word-input');
@@ -796,14 +926,38 @@
     $('word-propose').classList.add('hidden');
     $('word-buttons').classList.remove('hidden');
     localProposal = null;
+    setupWildcardField(fixedIndices, cells);
     showModal('modal-word');
     setTimeout(() => inp.focus(), 50);
+  }
+  // ワイルドカードを所持していて、経路上に既存の文字(通常は完全一致が必須なマス)が
+  // あるときだけ、書き換え対象を選ぶセレクトを表示する。
+  function setupWildcardField(fixedIndices, cells) {
+    const field = $('wildcard-field');
+    const select = $('wildcard-select');
+    const playerId = mode === 'offline' ? WordChain.currentPlayer(game) : myId;
+    const inv = (game.items && game.items[playerId]) || { wildcard: 0 };
+    select.innerHTML = '<option value="">使わない</option>';
+    if (!game.itemsMode || inv.wildcard <= 0 || fixedIndices.length === 0) {
+      field.classList.add('hidden');
+      return;
+    }
+    for (const i of fixedIndices) {
+      const [cr, cc] = cells[i];
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = `${i + 1}文字目「${game.board[cr][cc]}」を書き換える`;
+      select.appendChild(opt);
+    }
+    field.classList.remove('hidden');
   }
   function submitWord() {
     if (!isMyInputTurn() || selection.dir === null) return;
     const raw = WordChain.romajiToHiragana($('word-input').value.trim(), true);
     const word = WordChain.katakanaToHiragana(raw);
-    const move = { r: selection.r, c: selection.c, dir: selection.dir, word };
+    const wcVal = $('wildcard-field').classList.contains('hidden') ? '' : $('wildcard-select').value;
+    const wildcardIndex = wcVal === '' ? undefined : Number(wcVal);
+    const move = { r: selection.r, c: selection.c, dir: selection.dir, word, wildcardIndex };
     const v = WordChain.validateMove(game, move, startChars);
     if (!v.ok) { $('word-error').textContent = v.reason; return; }
     $('word-error').textContent = '';
@@ -890,6 +1044,7 @@
     itemsModeOn = $('offline-items-mode').checked;
     itemClearCount = Number($('offline-item-clear-count').value);
     itemBlockCount = Number($('offline-item-block-count').value);
+    itemWildcardCount = Number($('offline-item-wildcard-count').value);
     const opponent = coopModeOn ? 'human' : $('offline-opponent').value;
     const cpuLevel = $('offline-cpu-level').value;
     roster = [];
@@ -916,7 +1071,7 @@
       size: boardSize, initialCells, initialLetters, obstacleCells,
       first: randInt(roster.length), timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id),
       scoringMode, bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
-      itemClearCount, itemBlockCount,
+      itemClearCount, itemBlockCount, itemWildcardCount,
     });
   }
   function randInt(max) { const b = new Uint32Array(1); crypto.getRandomValues(b); return b[0] % max; }
@@ -1155,7 +1310,8 @@
       bonusMode: game.bonusMode,
       bonusFlatCell: game.bonusFlatCell, bonusFlatValue: game.bonusFlatValue,
       bonusMultCell: game.bonusMultCell, bonusMultValue: game.bonusMultValue,
-      obstacleMove: game.obstacleMove, itemsMode: game.itemsMode, items: game.items, itemGraceId: game.itemGraceId,
+      obstacleMove: game.obstacleMove, itemsMode: game.itemsMode, items: game.items, itemCells: game.itemCells,
+      pendingBlockOffer: game.pendingBlockOffer, pendingItemUse: game.pendingItemUse,
     };
   }
   function hostOnMessage(connId, m) {
@@ -1184,9 +1340,15 @@
         break;
       }
       case 'config-ack': if (phase === 'confirm') { confirmAcks.add(id); maybeAllConfirmed(); } break;
-      case 'move': if (phase === 'game') authorityHandleMove(id, { r: m.r, c: m.c, dir: m.dir, word: m.word }); break;
+      case 'move':
+        if (phase === 'game') {
+          authorityHandleMove(id, { r: m.r, c: m.c, dir: m.dir, word: m.word, wildcardIndex: m.wildcardIndex });
+        }
+        break;
       case 'pass': if (phase === 'game') authorityPass(id, false); break;
       case 'use-item': if (phase === 'game') authorityUseItem(id, m.item, m.r, m.c); break;
+      case 'use-item-start': if (phase === 'game') authorityStartClearWindow(id); break;
+      case 'decline-block-offer': if (phase === 'game') authorityDeclineBlockOffer(id); break;
       case 'approve-vote': if (approval) recordVote(id, m.ok); break;
       case 'rematch-vote': if (phase === 'over' && m.ok) { rematchVotes.add(id); checkRematch(); } break;
       case 'chat': hostRelayChat(connId, id, m.text); break;
@@ -1260,6 +1422,7 @@
     itemsModeOn = $('lobby-items-mode').checked;
     itemClearCount = Number($('lobby-item-clear-count').value);
     itemBlockCount = Number($('lobby-item-block-count').value);
+    itemWildcardCount = Number($('lobby-item-wildcard-count').value);
     coopModeOn = $('lobby-coop-mode').checked;
     coopCpuLevel = $('lobby-coop-cpu-level').value;
     if (coopModeOn && n >= WordChain.MAX_PLAYERS) {
@@ -1272,7 +1435,7 @@
       t: 'config', size: boardSize, timeLimit: timeLimitSec, players: publicRoster(),
       placementMode, initialCount, obstacles: obstaclesOn, obstacleCount, scoringMode,
       bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
-      itemClearCount, itemBlockCount, coopMode: coopModeOn, coopCpuLevel,
+      itemClearCount, itemBlockCount, itemWildcardCount, coopMode: coopModeOn, coopCpuLevel,
     });
     $('lobby-status').textContent = 'ゲストの確認を待っています...';
     $('btn-lobby-start').disabled = true;
@@ -1297,13 +1460,13 @@
         t: 'begin', size: boardSize, initialCells, initialLetters, obstacleCells,
         timeLimit: timeLimitSec, players: publicRoster(), first, scoringMode,
         bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
-        itemClearCount, itemBlockCount,
+        itemClearCount, itemBlockCount, itemWildcardCount,
       });
       beginLocalGame({
         size: boardSize, initialCells, initialLetters, obstacleCells,
         first, timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id), scoringMode,
         bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
-        itemClearCount, itemBlockCount,
+        itemClearCount, itemBlockCount, itemWildcardCount,
       });
     }
   }
@@ -1350,7 +1513,7 @@
           size: m.size, initialCells: m.initialCells, initialLetters: m.initialLetters, obstacleCells: m.obstacleCells,
           first: m.first, timeLimit: m.timeLimit, playerIds: m.players.map((p) => p.id), scoringMode: m.scoringMode,
           bonusMode: m.bonusMode, obstacleMove: m.obstacleMove, itemsMode: m.itemsMode,
-          itemClearCount: m.itemClearCount, itemBlockCount: m.itemBlockCount,
+          itemClearCount: m.itemClearCount, itemBlockCount: m.itemBlockCount, itemWildcardCount: m.itemWildcardCount,
         });
         break;
       case 'turn': guestOnTurn(m); break;
@@ -1359,6 +1522,21 @@
       case 'pass-applied': guestApplyPass(m); break;
       case 'item-applied': guestApplyItem(m); break;
       case 'item-rejected': notice(m.reason || 'アイテムを使用できませんでした。'); break;
+      case 'item-window-start':
+        if (game) {
+          game.pendingItemUse = { playerId: m.by, item: m.item, expiresAt: m.expiresAt };
+          if (m.by === myId) {
+            itemTargetMode = { item: 'clear', playerId: m.by };
+            renderItemTargets(); updateItemButtons();
+          } else {
+            setStatus(`${nameOf(m.by)}が「クリア」を使用中...`);
+          }
+          startClearCountdownUI(m.expiresAt);
+        }
+        break;
+      case 'block-offer':
+        if (game) { game.pendingBlockOffer = { playerId: m.playerId }; showBlockOfferModal(m.playerId); }
+        break;
       case 'approve-start': if (game) showApproveModal(m.by, m.word); break;
       case 'approve-end': hideModal('modal-approve'); break;
       case 'move-rejected': handleLocalReject(m.reason); break;
@@ -1393,7 +1571,7 @@
       `<div class="row"><span>お邪魔マス</span><span>${m.obstacles ? `あり (${m.obstacleCount}マス${m.obstacleMove ? '・移動あり' : ''})` : 'なし'}</span></div>` +
       `<div class="row"><span>対戦モード</span><span>${m.scoringMode === 'territory' ? '陣取りモード' : '通常モード'}</span></div>` +
       `<div class="row"><span>ボーナスマス</span><span>${m.bonusMode ? 'あり' : 'なし'}</span></div>` +
-      `<div class="row"><span>アイテム</span><span>${m.itemsMode ? `あり (クリア${m.itemClearCount}回・ブロック${m.itemBlockCount}回)` : 'なし'}</span></div>` +
+      `<div class="row"><span>アイテム</span><span>${m.itemsMode ? `あり (クリア${m.itemClearCount}・ブロック${m.itemBlockCount}・ワイルドカード${m.itemWildcardCount}を盤面に配置)` : 'なし'}</span></div>` +
       `<div class="row"><span>協力モード</span><span>${m.coopMode ? `あり (CPU 1体 vs プレーヤー全員、強さ: ${CPU.LEVEL_LABEL[m.coopCpuLevel] || '普通'})` : 'なし'}</span></div>` +
       `<div class="row"><span>参加者 (${m.players.length}人)</span><span>${escapeHtml(names)}</span></div>`;
     showModal('modal-confirm');
@@ -1406,7 +1584,9 @@
     pendingMove = null; localProposal = null;
     selection = { r: null, c: null, dir: null };
     itemTargetMode = null;
-    hideDirPanel(); hideModal('modal-word');
+    game.pendingBlockOffer = null; // 'turn'が届いた時点でオファーは解決済み
+    stopClearCountdownUI();
+    hideDirPanel(); hideModal('modal-word'); hideBlockOfferModal();
     setTimerDisplay(m.remainingMs, true);
     game.bonusFlatCell = m.bonusFlatCell || null;
     game.bonusFlatValue = m.bonusFlatValue || null;
@@ -1441,15 +1621,17 @@
     if (!game) return;
     const idx = game.players.indexOf(m.by);
     if (idx >= 0) game.turnIdx = idx;
-    const move = { r: m.r, c: m.c, dir: m.dir, word: m.word };
-    const { placed, flatValue, multValue } = WordChain.applyMove(game, move, m.by);
+    const move = { r: m.r, c: m.c, dir: m.dir, word: m.word, wildcardIndex: m.wildcardIndex };
+    const { placed, captured, flatValue, multValue, itemsGot } = WordChain.applyMove(game, move, m.by);
     const flatCell = flatValue ? game.bonusFlatCell : null;
     const multCell = multValue ? game.bonusMultCell : null;
     renderPlaced(placed, m.by);
+    renderCaptured(captured, m.by);
     drawLastWordLine(move, m.by);
-    addHistoryWord(m.word, m.by, game.history[game.history.length - 1].points);
+    addHistoryWord(m.word, m.by, game.history[game.history.length - 1]);
     if (m.approved) { Sound.sfx('approve'); if (!inDict(m.word)) addWordToDict(m.word); }
     if (flatValue || multValue) showBonusGet(flatValue, multValue, flatCell, multCell);
+    showItemGet(itemsGot);
     pendingMove = null;
     refreshAll();
   }
@@ -1482,11 +1664,14 @@
     game.bonusFlatCell = m.bonusFlatCell || null; game.bonusFlatValue = m.bonusFlatValue || null;
     game.bonusMultCell = m.bonusMultCell || null; game.bonusMultValue = m.bonusMultValue || null;
     game.obstacleMove = !!m.obstacleMove;
-    game.itemsMode = !!m.itemsMode; game.items = m.items || {}; game.itemGraceId = m.itemGraceId || null;
+    game.itemsMode = !!m.itemsMode; game.items = m.items || {};
+    game.itemCells = m.itemCells || { clear: [], block: [], wildcard: [] };
+    game.pendingBlockOffer = m.pendingBlockOffer || null;
+    game.pendingItemUse = m.pendingItemUse || null;
     phase = 'game'; hideAllModals();
     buildBoardDOM();
     $('history').innerHTML = '';
-    game.history.forEach((h) => { h.pass ? addHistoryPass(h.by) : addHistoryWord(h.word, h.by, h.points); });
+    game.history.forEach((h) => { h.pass ? addHistoryPass(h.by) : addHistoryWord(h.word, h.by, h); });
     showScreen('screen-game');
     renderRoomCode();
     setTimerDisplay(m.remainingMs, false);
@@ -1507,6 +1692,7 @@
   // ---------------- 共通遷移 ----------------
   function resetToHome() {
     stopTimer();
+    stopClearCountdownUI();
     if (cpuTimer) { clearTimeout(cpuTimer); cpuTimer = null; }
     game = null; phase = 'home'; roster = []; myId = null;
     approval = null; waitingSlot = null; discInfo = null; pendingMove = null; localProposal = null;
@@ -1739,7 +1925,10 @@
   });
   // アイテムの回数は0〜9に収める
   const ITEM_COUNT_MAX = 9;
-  for (const id of ['offline-item-clear-count', 'offline-item-block-count', 'lobby-item-clear-count', 'lobby-item-block-count']) {
+  for (const id of [
+    'offline-item-clear-count', 'offline-item-block-count', 'offline-item-wildcard-count',
+    'lobby-item-clear-count', 'lobby-item-block-count', 'lobby-item-wildcard-count',
+  ]) {
     $(id).addEventListener('input', () => {
       const el = $(id);
       const n = Number(el.value);
@@ -1830,30 +2019,24 @@
     if (!WordChain.startCells(game).some(([sr, sc]) => sr === r && sc === c)) return;
     selectCell(r, c);
   });
-  $('btn-item-clear').addEventListener('click', () => {
-    if ($('btn-item-clear').disabled) return;
-    const playerId = mode === 'offline' ? WordChain.currentPlayer(game) : myId;
-    itemTargetMode = (itemTargetMode && itemTargetMode.item === 'clear' && itemTargetMode.playerId === playerId)
-      ? null : { item: 'clear', playerId };
-    renderItemTargets(); updateItemButtons();
-  });
-  $('btn-item-block').addEventListener('click', () => {
-    if ($('btn-item-block').disabled) return;
-    const playerId = mode === 'offline' ? WordChain.currentPlayer(game) : myId;
-    itemTargetMode = (itemTargetMode && itemTargetMode.item === 'block' && itemTargetMode.playerId === playerId)
-      ? null : { item: 'block', playerId };
-    renderItemTargets(); updateItemButtons();
-  });
-  $('btn-item-block-grace').addEventListener('click', () => {
-    if ($('btn-item-block-grace').disabled || $('btn-item-block-grace').classList.contains('hidden')) return;
-    const playerId = game.itemGraceId;
-    itemTargetMode = (itemTargetMode && itemTargetMode.item === 'block' && itemTargetMode.playerId === playerId)
-      ? null : { item: 'block', playerId };
-    renderItemTargets(); updateItemButtons();
-  });
+  $('btn-item-clear').addEventListener('click', startClearItem);
   $('btn-item-cancel').addEventListener('click', () => {
     itemTargetMode = null;
     renderItemTargets(); updateItemButtons();
+  });
+  $('btn-block-offer-yes').addEventListener('click', () => {
+    hideBlockOfferModal();
+    const holderId = game && game.pendingBlockOffer && game.pendingBlockOffer.playerId;
+    if (!holderId) return;
+    itemTargetMode = { item: 'block', playerId: holderId };
+    renderItemTargets(); updateItemButtons();
+  });
+  $('btn-block-offer-no').addEventListener('click', () => {
+    hideBlockOfferModal();
+    const holderId = game && game.pendingBlockOffer && game.pendingBlockOffer.playerId;
+    if (!holderId) return;
+    if (mode === 'online-guest') Net.sendHost({ t: 'decline-block-offer' });
+    else authorityDeclineBlockOffer(holderId);
   });
   document.querySelectorAll('.dir-btn').forEach((b) => {
     b.addEventListener('click', () => { if (!isMyInputTurn() || selection.r === null) return; selection.dir = Number(b.dataset.dir); openWordModal(); });
