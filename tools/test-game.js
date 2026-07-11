@@ -521,7 +521,7 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
   assert(g.pendingBlockOffer === null, '使用後はオファーが閉じる');
 }
 {
-  // ブロックは初期文字マスの周囲2マス以内には配置できない
+  // ブロックは初期文字マスの周囲2マスにも配置できる(この制限は廃止された)
   const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
   const g = WC.newGame({
     size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
@@ -529,8 +529,8 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
   });
   g.items.p0.block = 1;
   g.pendingBlockOffer = { playerId: 'p0' };
-  const res = WC.useItem(g, 'p0', 'block', 3, 5); // 初期文字マスの周囲2マス以内
-  assert(res.ok === false, 'ブロックは初期文字マスの周囲2マス以内には配置できない');
+  const res = WC.useItem(g, 'p0', 'block', 3, 5); // 初期文字マスの周囲2マス以内だが、起点マスの制限は廃止済み
+  assert(res.ok === true, 'ブロックは初期文字マスの周囲2マス以内にも配置できる(制限廃止)');
 }
 {
   // ブロックは現在の起点マス(相手が次に文字を入力し始める位置)の周囲1マスにも配置できない

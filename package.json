@@ -1,6 +1,6 @@
 {
   "name": "word-chain",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "ワードチェイン - 8x8盤面で単語をつなげて文字数を競う対戦ゲーム",
   "main": "main.js",
   "author": "yasshi",

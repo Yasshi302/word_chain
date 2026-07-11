@@ -552,17 +552,15 @@ const WordChain = (() => {
     return out;
   }
 
-  /** 「ブロック」を配置できないマスの一覧 (初期文字マス周囲2マス + 現在の起点マス周囲1マス) */
+  /** 「ブロック」を配置できないマスの一覧 (現在の起点マス周囲1マス) */
   function blockAvoidCells(game) {
-    const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
-    const avoidChain = game.chain
+    return game.chain
       ? expandAvoidRadius(game.size, [[game.chain.r, game.chain.c]], BLOCK_CHAIN_AVOID_RADIUS)
       : [];
-    return [...avoid, ...avoidChain];
   }
 
-  /** 「ブロック」アイテムで配置可能な未入力マス一覧 (初期文字マス周囲2マス・現在の起点マス
-   * 周囲1マスを除く)。UIのハイライト用 */
+  /** 「ブロック」アイテムで配置可能な未入力マス一覧 (現在の起点マス周囲1マスを除く)。
+   * UIのハイライト用 */
   function blockableCells(game) {
     const avoidSet = new Set(blockAvoidCells(game).map(([r, c]) => r * 100 + c));
     const out = [];
@@ -663,7 +661,7 @@ const WordChain = (() => {
     if (game.board[r][c] !== null) return { ok: false, reason: 'そのマスには既に文字があります' };
     if (game.blocked[r][c]) return { ok: false, reason: 'そのマスは既にお邪魔マスです' };
     if (blockAvoidCells(game).some(([ar, ac]) => ar === r && ac === c)) {
-      return { ok: false, reason: '初期文字マスの周囲2マス・現在の起点マスの周囲1マスには配置できません' };
+      return { ok: false, reason: '現在の起点マスの周囲1マスには配置できません' };
     }
     game.blocked[r][c] = true;
     inv.block -= 1;
