@@ -162,6 +162,7 @@ const Sound = (() => {
     approve() { const t = ctx.currentTime; bell(freq('C5'), t, 0.5, 0.2); bell(freq('G5'), t + 0.12, 0.6, 0.2); },
     reject() { beep('sawtooth', 240, 150, ctx.currentTime, 0.28, 0.2, 900); },
     chat() { const t = ctx.currentTime; beep('sine', 680, 920, t, 0.10, 0.22); beep('sine', 1300, 1500, t + 0.05, 0.08, 0.10); },
+    bonus() { const t = ctx.currentTime; ['E5', 'G5', 'C6', 'E6'].forEach((n, i) => bell(freq(n), t + i * 0.07, 0.5, 0.2)); },
     win() { const t = ctx.currentTime; ['C5', 'E5', 'G5', 'C6'].forEach((n, i) => bell(freq(n), t + i * 0.12, 0.8, 0.24)); },
     lose() { const t = ctx.currentTime; bell(freq('A4'), t, 0.7, 0.18); bell(freq('D4'), t + 0.18, 1.0, 0.18); },
   };

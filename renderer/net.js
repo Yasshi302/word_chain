@@ -63,12 +63,15 @@ const Net = (() => {
       && Number.isInteger(v[0]) && v[0] >= 0 && v[0] < 15
       && Number.isInteger(v[1]) && v[1] >= 0 && v[1] < 15);
   }
-  function bonusMultiplierOk(v) { return v === null || v === undefined || v === 2 || v === 3; }
+  function bonusFlatValueOk(v) { return v === null || v === undefined || (Number.isInteger(v) && v >= 1 && v <= 5); }
+  function bonusMultValueOk(v) { return v === null || v === undefined || (Number.isInteger(v) && v >= 2 && v <= 3); }
   function coordOk(v) { return Number.isInteger(v) && v >= 0 && v < 15; }
   function itemNameOk(v) { return v === 'clear' || v === 'block'; }
+  const ITEM_COUNT_MAX = 9;
+  function itemCountOk(v) { return Number.isInteger(v) && v >= 0 && v <= ITEM_COUNT_MAX; }
   function itemsInventoryOk(v) {
     return v && typeof v === 'object' && Object.values(v).every((inv) => inv && typeof inv === 'object'
-      && typeof inv.clear === 'boolean' && typeof inv.block === 'boolean');
+      && Number.isInteger(inv.clear) && inv.clear >= 0 && Number.isInteger(inv.block) && inv.block >= 0);
   }
 
   // ゲーム系メッセージ種別ごとの検証 (認証系は別処理)。
@@ -99,7 +102,8 @@ const Net = (() => {
       && scoringModeOk(m.scoringMode)
       && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
       && typeof m.itemsMode === 'boolean' && typeof m.coopMode === 'boolean'
-      && (!m.coopMode || coopLevelOk(m.coopCpuLevel)),
+      && (!m.coopMode || coopLevelOk(m.coopCpuLevel))
+      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount))),
     'begin': (m) => sizeOk(m.size) && timeOk(m.timeLimit) && rosterOk(m.players)
       && cellsOk(m.initialCells, m.size, 1, 10)
       && Array.isArray(m.initialLetters) && m.initialLetters.length === m.initialCells.length
@@ -108,9 +112,11 @@ const Net = (() => {
       && scoringModeOk(m.scoringMode)
       && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
       && typeof m.itemsMode === 'boolean'
+      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount)))
       && Number.isInteger(m.first) && m.first >= 0 && m.first < 4,
     'turn': (m) => typeof m.by === 'string' && Number.isFinite(m.remainingMs)
-      && cellOrNullOk(m.bonusCell) && bonusMultiplierOk(m.bonusMultiplier)
+      && cellOrNullOk(m.bonusFlatCell) && bonusFlatValueOk(m.bonusFlatValue)
+      && cellOrNullOk(m.bonusMultCell) && bonusMultValueOk(m.bonusMultValue)
       && (m.obstacleCells === undefined || cellsOk(m.obstacleCells, 15, 0, maxObstacleCount(15))),
     'timer': (m) => Number.isFinite(m.remainingMs) && typeof m.running === 'boolean',
     'move-applied': (m) => typeof m.by === 'string'
@@ -134,9 +140,12 @@ const Net = (() => {
       && m.scores && typeof m.scores === 'object' && m.active && typeof m.active === 'object'
       && rosterOk(m.players) && Number.isInteger(m.turnIdx)
       && Array.isArray(m.used) && Array.isArray(m.history) && typeof m.territoryMode === 'boolean'
-      && typeof m.bonusMode === 'boolean' && cellOrNullOk(m.bonusCell) && bonusMultiplierOk(m.bonusMultiplier)
+      && typeof m.bonusMode === 'boolean'
+      && cellOrNullOk(m.bonusFlatCell) && bonusFlatValueOk(m.bonusFlatValue)
+      && cellOrNullOk(m.bonusMultCell) && bonusMultValueOk(m.bonusMultValue)
       && typeof m.obstacleMove === 'boolean'
-      && typeof m.itemsMode === 'boolean' && (!m.itemsMode || itemsInventoryOk(m.items)),
+      && typeof m.itemsMode === 'boolean' && (!m.itemsMode || itemsInventoryOk(m.items))
+      && (m.itemGraceId === undefined || m.itemGraceId === null || typeof m.itemGraceId === 'string'),
     'rematch-lobby': () => true,
     'rematch-progress': (m) => Number.isFinite(m.got) && Number.isFinite(m.need),
     'hb': () => true,
@@ -426,10 +435,12 @@ const Net = (() => {
     resetAll();
   }
 
+  function getRoomCode() { return roomCode; }
+
   return {
     CODE_LEN, MAX_GUESTS,
     createRoom, broadcast, sendTo, closeGuest,
     joinRoom, sendHost,
-    normalizeCode, leave,
+    normalizeCode, leave, getRoomCode,
   };
 })();

@@ -114,6 +114,14 @@ h2 { margin-top: 0; }
 .field.checkbox-field input { flex: 0 0 auto; width: 18px; height: 18px; padding: 0; accent-color: var(--accent); }
 .field.checkbox-field span { color: var(--text); font-size: 15px; }
 
+.item-counts-field {
+  display: grid;
+  grid-template-columns: auto 64px auto 64px;
+  align-items: center;
+  gap: 8px;
+}
+.item-counts-field input { width: 64px; padding: 6px 8px; }
+
 .error { color: var(--error); min-height: 1.2em; margin: 6px 0; font-size: 14px; }
 
 .record-line {
@@ -193,6 +201,23 @@ h2 { margin-top: 0; }
   padding: 14px 10px;
   margin: 12px 0;
   user-select: text;
+}
+
+.room-code-mini {
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--gold);
+  border-radius: 8px;
+  user-select: text;
+}
+.room-code-mini strong {
+  color: var(--gold);
+  font-size: 16px;
+  letter-spacing: 3px;
+  margin-left: 4px;
 }
 
 /* ---------- ゲーム画面 ---------- */
@@ -275,25 +300,14 @@ h2 { margin-top: 0; }
   background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.12), transparent 60%);
 }
 
-/* ボーナスマス: このマスを通った単語は得点が2倍になる */
-.cell.bonus {
+/* ボーナスマス取得演出: プレーヤーには通常見えないが、取得した瞬間だけ短く点滅する */
+.cell.bonus-flash {
   background: radial-gradient(circle at 50% 45%, rgba(230, 184, 76, .55), var(--bg-cell) 72%);
-  box-shadow: 0 0 12px rgba(230, 184, 76, .55);
-  animation: bonus-pulse 1.6s ease-in-out infinite;
-}
-.cell.bonus::after {
-  content: attr(data-bonus-mult);
-  position: absolute;
-  top: 2px;
-  right: 4px;
-  font-size: 10px;
-  font-weight: bold;
-  color: var(--gold);
-  line-height: 1;
+  animation: bonus-pulse .32s ease-in-out 3;
 }
 @keyframes bonus-pulse {
   0%, 100% { box-shadow: 0 0 8px rgba(230, 184, 76, .4); }
-  50% { box-shadow: 0 0 16px rgba(230, 184, 76, .75); }
+  50% { box-shadow: 0 0 20px rgba(230, 184, 76, .85); }
 }
 
 @keyframes pop {
@@ -705,6 +719,24 @@ input[type="range"]::-webkit-slider-thumb {
 @keyframes toast-in {
   from { opacity: 0; transform: translate(-50%, -12px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+.bonus-toast {
+  position: fixed;
+  top: 90px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-panel);
+  border: 1px solid var(--gold);
+  border-radius: 12px;
+  padding: 12px 22px;
+  z-index: 120;
+  font-size: 18px;
+  font-weight: bold;
+  color: var(--gold);
+  box-shadow: 0 6px 22px rgba(0,0,0,.5), 0 0 16px rgba(230, 184, 76, .4);
+  animation: toast-in .25s ease;
+  pointer-events: none;
 }
 
 /* ---------- 自動更新バナー (画面下部に固定) ---------- */

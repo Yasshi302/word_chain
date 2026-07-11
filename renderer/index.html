@@ -137,11 +137,17 @@
         </label>
         <label class="field checkbox-field">
           <input id="lobby-bonus-mode" type="checkbox">
-          <span>ボーナスマスを有効にする (最下位のプレーヤーの手番に、差が大きいほど高確率で2〜3倍点のマスが出現)</span>
+          <span>ボーナスマスを有効にする (最下位のプレーヤーが相手と10点差以上のとき出現。差が大きいほど高確率・高価値。開始5ターンは出現しない)</span>
         </label>
         <label class="field checkbox-field">
           <input id="lobby-items-mode" type="checkbox">
-          <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を試合中1回ずつ使用可)</span>
+          <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を使用可)</span>
+        </label>
+        <label id="lobby-item-counts-field" class="field hidden item-counts-field">
+          <span>クリアの回数</span>
+          <input id="lobby-item-clear-count" type="number" min="0" max="9" step="1" value="1">
+          <span>ブロックの回数</span>
+          <input id="lobby-item-block-count" type="number" min="0" max="9" step="1" value="1">
         </label>
         <label class="field checkbox-field">
           <input id="lobby-coop-mode" type="checkbox">
@@ -259,11 +265,17 @@
       </label>
       <label class="field checkbox-field">
         <input id="offline-bonus-mode" type="checkbox">
-        <span>ボーナスマスを有効にする (最下位のプレーヤーの手番に、差が大きいほど高確率で2〜3倍点のマスが出現)</span>
+        <span>ボーナスマスを有効にする (最下位のプレーヤーが相手と10点差以上のとき出現。差が大きいほど高確率・高価値。開始5ターンは出現しない)</span>
       </label>
       <label class="field checkbox-field">
         <input id="offline-items-mode" type="checkbox">
-        <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を試合中1回ずつ使用可)</span>
+        <span>アイテムを有効にする (各プレーヤーが「クリア」「ブロック」を使用可)</span>
+      </label>
+      <label id="offline-item-counts-field" class="field hidden item-counts-field">
+        <span>クリアの回数</span>
+        <input id="offline-item-clear-count" type="number" min="0" max="9" step="1" value="1">
+        <span>ブロックの回数</span>
+        <input id="offline-item-block-count" type="number" min="0" max="9" step="1" value="1">
       </label>
       <div class="menu-buttons">
         <button id="btn-offline-start" class="btn primary">対戦を始める</button>
@@ -320,6 +332,7 @@
         <p id="game-status" class="status-line"></p>
       </div>
       <div class="panel-side">
+        <div id="game-room-code" class="room-code-mini hidden">部屋コード <strong id="game-room-code-value"></strong></div>
         <div id="scores" class="scores"></div>
         <div id="record-line" class="record-line"></div>
         <div class="timer-wrap">
@@ -344,6 +357,7 @@
         <div id="item-buttons" class="game-buttons hidden">
           <button id="btn-item-clear" class="btn">クリア</button>
           <button id="btn-item-block" class="btn">ブロック</button>
+          <button id="btn-item-block-grace" class="btn hidden"></button>
           <button id="btn-item-cancel" class="btn hidden">対象選択をやめる</button>
         </div>
         <div class="game-buttons">
@@ -476,6 +490,7 @@
   </div>
 
   <div id="chat-toast" class="chat-toast hidden"></div>
+  <div id="bonus-toast" class="bonus-toast hidden"></div>
 
   <!-- 自動更新の状態表示 (画面下部に固定) -->
   <div id="update-banner" class="update-banner hidden">

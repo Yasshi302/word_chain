@@ -27,7 +27,10 @@ const WordChain = (() => {
   // お邪魔マスは初期文字セルの周囲このマス数(チェビシェフ距離)以内には配置しない
   const OBSTACLE_AVOID_RADIUS = 2;
   // お邪魔マス移動オプション: 1ターンに再配置されるお邪魔マスの数の上限
-  const OBSTACLE_MOVE_MAX_PER_TURN = 5;
+  const OBSTACLE_MOVE_MAX_PER_TURN = 1;
+  // お邪魔マス移動の移動先は、現在の起点マス(直前の単語の末尾=次の手番が単語を
+  // 作り始めるマス)からこのマス数(チェビシェフ距離)以内には配置しない
+  const OBSTACLE_MOVE_CHAIN_AVOID_RADIUS = 1;
   // 初期文字の候補: 単語の先頭になりやすい基本のかな
   const START_LETTER_POOL = [...'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれわ'];
   // 拗音・促音・小さい母音は、同じ行の直音でも入力できるようにする (例:「ゃ」→「や」)
@@ -247,16 +250,24 @@ const WordChain = (() => {
    *   initialCells/initialLetters: 省略時は中央2×2 (letters は後方互換の別名)
    *   obstacleCells: 省略時はお邪魔マスなし
    *   territoryMode: true で陣取りモード (他人のマスを通ると相手の得点を1点減らす)。省略時は通常モード。
-   *   bonusMode: true でボーナスマス(逆転support)オプション有効。得点が最下位(同点含む)の
-   *              プレーヤーの手番のときだけ、リーダーとの得点差が大きいほど高確率でボーナスマスが
-   *              出現し、2倍か3倍(ランダム)の得点になる。呼び出し側が毎ターン pickBonusCell() を
-   *              呼んでgame.bonusCell/game.bonusMultiplierに設定する想定。省略時は無効。
+   *   bonusMode: true でボーナスマス(逆転support)オプション有効。相手(リーダー)との得点差が
+   *              10点以上あるプレーヤーの手番のときだけ、差が大きいほど高確率でボーナスマスが
+   *              出現する。10〜19点差では+1〜+5点の加点マスのみ、20〜29点差ではそれに加えて
+   *              ×2倍マスも、30点差以上ではさらに×2〜×3倍マス(倍率もランダム)が出現候補に
+   *              加わる(点差が大きいほど出現候補が累積的に増える)。ゲーム開始から5ターン目
+   *              までは出現しない。加点マスと倍率マスは別々に(同じマスに重複しないよう)
+   *              独立して抽選される。ボーナスマスはプレーヤーからは見えない(盤面上に表示
+   *              されない)。呼び出し側が毎ターン pickBonusCells() を呼んで
+   *              game.bonusFlatCell/bonusFlatValue/bonusMultCell/bonusMultValueに設定する
+   *              想定。省略時は無効。
    *   obstacleMove: true でお邪魔マス移動オプション有効 (盤面の未入力マスが全マス数の半分に
-   *              なるまで、呼び出し側が毎ターン relocateObstacles() を呼ぶと最大5マスの
-   *              お邪魔マスがランダムに再配置される想定。省略時は無効)。
-   *   itemsMode: true でアイテムオプション有効。各プレーヤーが試合中1回ずつ「クリア」
-   *              (お邪魔マスを1つ解除)と「ブロック」(未入力マスに新しくお邪魔マスを配置)を
-   *              useItem()経由で使えるようになる。省略時は無効。
+   *              なるまで、呼び出し側が毎ターン relocateObstacles() を呼ぶとお邪魔マスのうち
+   *              1マスだけがランダムに再配置される想定。移動先は現在の起点マス(game.chain)
+   *              の周囲1マスには配置されない。省略時は無効)。
+   *   itemsMode: true でアイテムオプション有効。各プレーヤーが試合中、設定された回数だけ
+   *              「クリア」(お邪魔マスを1つ解除)と「ブロック」(未入力マスに新しくお邪魔マス
+   *              を配置)をuseItem()経由で使えるようになる。回数は itemClearCount/
+   *              itemBlockCount で指定 (省略時はそれぞれ1回)。省略時(itemsMode:false)は無効。
    */
   function newGame(opts) {
     const size = clampSize(opts.size);
@@ -274,7 +285,11 @@ const WordChain = (() => {
     for (const p of players) { scores[p] = 0; active[p] = true; }
     const itemsMode = !!opts.itemsMode;
     const items = {};
-    if (itemsMode) { for (const p of players) items[p] = { clear: true, block: true }; }
+    if (itemsMode) {
+      const clearCount = Math.max(0, Number.isInteger(opts.itemClearCount) ? opts.itemClearCount : 1);
+      const blockCount = Math.max(0, Number.isInteger(opts.itemBlockCount) ? opts.itemBlockCount : 1);
+      for (const p of players) items[p] = { clear: clearCount, block: blockCount };
+    }
     return {
       size,
       board,
@@ -283,11 +298,15 @@ const WordChain = (() => {
       initialCells,
       territoryMode: !!opts.territoryMode,
       bonusMode: !!opts.bonusMode,
-      bonusCell: null,       // [r, c] | null。呼び出し側がpickBonusCell()で毎ターン更新する
-      bonusMultiplier: null, // 2 | 3 | null。bonusCellと同時にpickBonusCell()が設定する
+      bonusFlatCell: null,   // [r, c] | null。呼び出し側がpickBonusCells()で毎ターン更新する加点マス
+      bonusFlatValue: null,  // 1〜5(加点) / null
+      bonusMultCell: null,   // [r, c] | null。加点マスとは別マス(重複しない)の倍率マス
+      bonusMultValue: null,  // 2〜3(倍率) / null
       obstacleMove: !!opts.obstacleMove,
       itemsMode,
-      items,         // playerId -> { clear: bool, block: bool } (true = 未使用)。itemsMode無効なら空
+      items,         // playerId -> { clear: 残り回数, block: 残り回数 }。itemsMode無効なら空
+      itemGraceId: null, // 直前に手番を終えたプレーヤーのid。「ブロック」はこのプレーヤーも、
+                         // 次のプレーヤーが手を確定する(=このidが上書きされる)まで使用できる
       scores,
       players,      // 手番の巡回順
       active,       // playerId -> bool
@@ -357,20 +376,38 @@ const WordChain = (() => {
   // 達すると、出現確率が上限(BONUS_PROB_CAP)に達する。差が無ければ確率0。
   const BONUS_PROB_CAP = 0.75;
   const BONUS_PROB_GAP_DIVISOR = 4;
+  // ボーナスマスが有効になる最低の得点差(これ未満は確率0で出現しない)
+  const BONUS_MIN_GAP = 10;
+  // この得点差以上で×2倍マスが、さらに大きい得点差以上で×2〜3倍マスが出現候補に加わる
+  const BONUS_TIER2_GAP = 20;
+  const BONUS_TIER3_GAP = 30;
+  // ゲーム開始からこのターン数(手番の総数、パス含む)に達するまではボーナスマスを出現させない
+  const BONUS_GRACE_TURNS = 5;
 
   /**
-   * 現在の手番プレーヤーに、この手番でボーナスマスが出現する確率 (0〜BONUS_PROB_CAP)。
-   * 得点が最下位(同点含む)でなければ0。最下位なら、リーダーとの得点差が大きいほど確率が上がる。
+   * 現在の手番プレーヤーが、リーダーとの得点差の観点でボーナスマスの対象になるかどうか。
+   * 得点が最下位(同点含む)でなければ非対象。
+   * @returns {{eligible:boolean, gap:number}}
    */
-  function bonusAppearProbability(game) {
-    if (!game.bonusMode) return 0;
+  function bonusGapInfo(game) {
     const cur = currentPlayer(game);
     const scores = game.players.map((p) => game.scores[p]);
     const leaderScore = Math.max(...scores);
     const lowestScore = Math.min(...scores);
-    if (game.scores[cur] !== lowestScore) return 0;
-    const gap = leaderScore - lowestScore;
-    if (gap <= 0) return 0;
+    if (game.scores[cur] !== lowestScore) return { eligible: false, gap: 0 };
+    return { eligible: true, gap: leaderScore - lowestScore };
+  }
+
+  /**
+   * 現在の手番プレーヤーに、この手番でボーナスマスが出現する確率 (0〜BONUS_PROB_CAP)。
+   * 得点が最下位(同点含む)でない、得点差がBONUS_MIN_GAP未満、まだBONUS_GRACE_TURNSに
+   * 達していない場合は0。それ以外は、得点差が大きいほど確率が上がる。
+   */
+  function bonusAppearProbability(game) {
+    if (!game.bonusMode) return 0;
+    if (game.history.length < BONUS_GRACE_TURNS) return 0;
+    const { eligible, gap } = bonusGapInfo(game);
+    if (!eligible || gap < BONUS_MIN_GAP) return 0;
     const scale = (game.size * game.size) / BONUS_PROB_GAP_DIVISOR;
     return Math.min(BONUS_PROB_CAP, gap / scale);
   }
@@ -399,25 +436,38 @@ const WordChain = (() => {
 
   /**
    * この手番のボーナスマスを抽選する (権威側が毎ターン開始時に呼び、結果を
-   * game.bonusCell/game.bonusMultiplierへ代入する想定)。
-   * bonusModeが無効、最下位でない、確率抽選に外れた、候補が無い場合はnull。
-   * 当たった場合は { cell: [r,c], multiplier: 2|3 } (倍率はランダム)。
+   * game.bonusFlatCell/bonusFlatValue/bonusMultCell/bonusMultValueへ代入する想定)。
+   * 加点マス(flat)と倍率マス(multiplier)は独立して抽選され、同じマスに重複しない。
+   * bonusModeが無効、最下位でない、得点差が足りない場合は両方null。
+   * 倍率マスは得点差がBONUS_TIER2_GAP未満なら常にnull(候補にならない)。
+   * @returns {{flat: {cell:[number,number], value:number}|null, multiplier: {cell:[number,number], value:number}|null}}
    */
-  function pickBonusCell(game) {
+  function pickBonusCells(game) {
     const prob = bonusAppearProbability(game);
-    if (prob <= 0) return null;
-    if (randomInt(1000) >= Math.round(prob * 1000)) return null;
-    const candidates = reachableEmptyCells(game);
-    if (candidates.length === 0) return null;
-    const cell = candidates[randomInt(candidates.length)];
-    const multiplier = randomInt(2) === 0 ? 2 : 3;
-    return { cell, multiplier };
+    if (prob <= 0) return { flat: null, multiplier: null };
+    const { gap } = bonusGapInfo(game);
+    let candidates = reachableEmptyCells(game);
+    let flat = null;
+    if (candidates.length > 0 && randomInt(1000) < Math.round(prob * 1000)) {
+      const cell = candidates[randomInt(candidates.length)];
+      flat = { cell, value: 1 + randomInt(5) };
+      candidates = candidates.filter(([r, c]) => !(r === cell[0] && c === cell[1]));
+    }
+    let multiplier = null;
+    if (gap >= BONUS_TIER2_GAP && candidates.length > 0 && randomInt(1000) < Math.round(prob * 1000)) {
+      const cell = candidates[randomInt(candidates.length)];
+      const value = gap >= BONUS_TIER3_GAP ? (randomInt(2) === 0 ? 2 : 3) : 2;
+      multiplier = { cell, value };
+    }
+    return { flat, multiplier };
   }
 
   /**
    * お邪魔マスをランダムに再配置する (権威側が毎ターン開始時に呼ぶ想定。game.blockedを直接書き換える)。
    * obstacleMoveが無効、お邪魔マスが無い、または未入力マスが全マス数の半分以下になった場合は何もしない。
-   * 1ターンに移動するお邪魔マスは最大 OBSTACLE_MOVE_MAX_PER_TURN(5)マスまで (残りは元の位置のまま)。
+   * 1ターンに移動するお邪魔マスは OBSTACLE_MOVE_MAX_PER_TURN(1)マスだけ (残りは元の位置のまま)。
+   * 移動先は、現在の起点マス(game.chain、次の手番が単語を作り始めるマス)の周囲
+   * OBSTACLE_MOVE_CHAIN_AVOID_RADIUS(1)マスには配置しない。
    * @returns 今回新しく移動した先のセル一覧、または再配置しなかった場合はnull
    */
   function relocateObstacles(game) {
@@ -435,7 +485,10 @@ const WordChain = (() => {
     const movingCells = oldCells.slice(0, Math.min(OBSTACLE_MOVE_MAX_PER_TURN, oldCells.length));
     for (const [r, c] of movingCells) game.blocked[r][c] = false;
     const avoid = expandAvoidRadius(game.size, game.initialCells, OBSTACLE_AVOID_RADIUS);
-    const avoidSet = new Set(avoid.map(([r, c]) => r * 100 + c));
+    const avoidChain = game.chain
+      ? expandAvoidRadius(game.size, [[game.chain.r, game.chain.c]], OBSTACLE_MOVE_CHAIN_AVOID_RADIUS)
+      : [];
+    const avoidSet = new Set([...avoid, ...avoidChain].map(([r, c]) => r * 100 + c));
     const pool = [];
     for (let r = 0; r < game.size; r++) {
       for (let c = 0; c < game.size; c++) {
@@ -478,9 +531,19 @@ const WordChain = (() => {
     return out;
   }
 
+  /** このプレーヤーが今このアイテムを使用してよいか。自分の手番なら常にOK。
+   * 「ブロック」だけは、直前に手番を終えたプレーヤー(game.itemGraceId)にも、次のプレーヤーが
+   * 手を確定する(=itemGraceIdが上書きされる)まで使用を認める。 */
+  function canUseItemNow(game, playerId, item) {
+    if (currentPlayer(game) === playerId) return true;
+    return item === 'block' && game.itemGraceId === playerId;
+  }
+
   /**
-   * アイテムを使用する (試合中1人1回まで、手番は消費しない)。
+   * アイテムを使用する (試合中、設定された回数まで。手番は消費しない)。
    * item: 'clear' (指定したお邪魔マスを1つ解除) | 'block' (指定した未入力マスに新しくお邪魔マスを配置)
+   * 「ブロック」は自分の手番中に加え、次のプレーヤーがまだ手を確定していない間も使用できる
+   * (canUseItemNow参照)。
    * @returns {{ok:true} | {ok:false, reason}}
    */
   function useItem(game, playerId, item, r, c) {
@@ -488,7 +551,8 @@ const WordChain = (() => {
     if (!inBounds(game, r, c)) return { ok: false, reason: '座標が不正です' };
     const inv = game.items[playerId];
     if (!inv || (item !== 'clear' && item !== 'block')) return { ok: false, reason: '不明なアイテムです' };
-    if (!inv[item]) return { ok: false, reason: 'このアイテムは既に使用済みです' };
+    if (!canUseItemNow(game, playerId, item)) return { ok: false, reason: '今はこのアイテムを使用できません' };
+    if (inv[item] <= 0) return { ok: false, reason: 'このアイテムの残り回数がありません' };
     if (item === 'clear') {
       if (!game.blocked[r][c]) return { ok: false, reason: 'そのマスはお邪魔マスではありません' };
       game.blocked[r][c] = false;
@@ -501,7 +565,7 @@ const WordChain = (() => {
       }
       game.blocked[r][c] = true;
     }
-    inv[item] = false;
+    inv[item] -= 1;
     return { ok: true };
   }
 
@@ -620,24 +684,33 @@ const WordChain = (() => {
         game.owner[cr][cc] = by;
       }
     }
-    // ボーナスマス: このマスを通った単語は得点(文字数)が2倍か3倍(game.bonusMultiplier)になる
-    const bonusHit = game.bonusMode && game.bonusCell
-      && cells.some(([cr, cc]) => cr === game.bonusCell[0] && cc === game.bonusCell[1]);
-    const points = chars.length * (bonusHit ? (game.bonusMultiplier || 2) : 1);
+    // ボーナスマス: 加点マスと倍率マスは別々に判定し、両方を通った場合は加点を
+    // 適用した後に倍率をかける(例: 3文字+加点2→倍率2で (3+2)*2=10点)
+    const flatHit = game.bonusMode && game.bonusFlatCell
+      && cells.some(([cr, cc]) => cr === game.bonusFlatCell[0] && cc === game.bonusFlatCell[1]);
+    const multHit = game.bonusMode && game.bonusMultCell
+      && cells.some(([cr, cc]) => cr === game.bonusMultCell[0] && cc === game.bonusMultCell[1]);
+    let points = chars.length;
+    const flatValue = flatHit ? (game.bonusFlatValue || 1) : null;
+    const multValue = multHit ? (game.bonusMultValue || 2) : null;
+    if (flatValue) points += flatValue;
+    if (multValue) points *= multValue;
     game.scores[by] += points;
     game.usedWords.add(move.word);
     game.history.push({ word: move.word, by, points });
     const [lr, lc] = cells[cells.length - 1];
     game.chain = { r: lr, c: lc };
     game.passStreak = 0;
+    game.itemGraceId = by; // 「ブロック」は次のプレーヤーが手を確定するまでこのプレーヤーも使える
     advanceTurn(game);
-    return placed;
+    return { placed, flatValue, multValue };
   }
 
   function applyPass(game) {
     const by = currentPlayer(game);
     game.history.push({ pass: true, by });
     game.passStreak++;
+    game.itemGraceId = by; // 「ブロック」は次のプレーヤーが手を確定するまでこのプレーヤーも使える
     if (game.passStreak >= activeCount(game) || activeCount(game) < 2) {
       game.over = true;
       return;
@@ -671,8 +744,9 @@ const WordChain = (() => {
     generateInitialCells, generateObstacleCells, maxObstacleCount, centerClockwiseCells,
     newGame, currentPlayer, activeCount, inBounds, maxLen, rayCells, startCells,
     canPlaceDir, hasAnyPlacement, validateMove, applyMove, applyPass, removePlayer,
-    winners, emptyCellCount, bonusAppearProbability, reachableEmptyCells, pickBonusCell,
+    winners, emptyCellCount, bonusAppearProbability, reachableEmptyCells, pickBonusCells,
     relocateObstacles, obstacleCellList, OBSTACLE_MOVE_MAX_PER_TURN, useItem, blockableCells,
+    canUseItemNow,
   };
 })();
 
