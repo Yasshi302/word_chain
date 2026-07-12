@@ -435,14 +435,8 @@ h2 { margin-top: 0; }
   border-radius: 8px;
 }
 
-.history-wrap {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px;
-  flex: 1;
-  min-height: 120px;
-  overflow: hidden;
+.modal-box-tall {
+  max-height: 80vh;
   display: flex;
   flex-direction: column;
 }
@@ -452,7 +446,9 @@ h2 { margin-top: 0; }
   padding: 0;
   overflow-y: auto;
   flex: 1;
+  min-height: 120px;
   font-size: 15px;
+  text-align: left;
 }
 #history li { padding: 4px 6px; border-bottom: 1px solid var(--border); }
 #history li.p0 { color: var(--p0); }

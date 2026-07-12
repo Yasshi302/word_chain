@@ -408,13 +408,23 @@
           <button id="btn-pass" class="btn warn" disabled>パスする</button>
           <button id="btn-leave" class="btn">退出</button>
         </div>
-        <div class="history-wrap">
-          <p class="panel-caption">単語の履歴</p>
-          <ul id="history"></ul>
+        <div class="game-buttons">
+          <button id="btn-history" class="btn">単語の履歴を見る</button>
         </div>
       </div>
     </div>
   </section>
+
+  <!-- 単語の履歴モーダル -->
+  <div id="modal-history" class="modal hidden">
+    <div class="modal-box modal-box-tall">
+      <h3>単語の履歴</h3>
+      <ul id="history"></ul>
+      <div class="menu-buttons">
+        <button id="btn-history-close" class="btn">閉じる</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 単語入力モーダル -->
   <div id="modal-word" class="modal hidden">

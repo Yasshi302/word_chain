@@ -133,7 +133,7 @@ const Net = (() => {
       && scoringModeOk(m.scoringMode)
       && typeof m.bonusMode === 'boolean' && typeof m.obstacleMove === 'boolean'
       && typeof m.itemsMode === 'boolean'
-      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount) && itemCountOk(m.itemWildcardCount)))
+      && (!m.itemsMode || (itemCountOk(m.itemClearCount) && itemCountOk(m.itemBlockCount) && itemCountOk(m.itemWildcardCount) && itemCellsOk(m.itemCells, m.size)))
       && Number.isInteger(m.first) && m.first >= 0 && m.first < 4,
     'turn': (m) => typeof m.by === 'string' && Number.isFinite(m.remainingMs)
       && cellOrNullOk(m.bonusFlatCell) && bonusFlatValueOk(m.bonusFlatValue)

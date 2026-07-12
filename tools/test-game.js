@@ -440,6 +440,18 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
   assert(g.itemCells.block.length === 0, '0を指定したアイテムは配置されない');
   assert(g.itemCells.wildcard.length === 2, '指定した数(ワイルドカード2)のマスが配置される');
 }
+{
+  // opts.itemCells を渡した場合はそれをそのまま使い、内部で乱数生成し直さない
+  // (オンライン対戦でホストが一度だけ生成した具体的な座標を全クライアントに配信し、
+  // 各クライアントの newGame() が同じ座標で構築されることを保証するための仕様)
+  const explicitItemCells = { clear: [[1, 1]], block: [[2, 2]], wildcard: [[3, 3]] };
+  const g = WC.newGame({
+    size: 10, letters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 5, itemBlockCount: 5, itemWildcardCount: 5, itemCells: explicitItemCells,
+  });
+  assert(JSON.stringify(g.itemCells) === JSON.stringify(explicitItemCells),
+    'itemCellsを明示的に渡すとその座標がそのまま使われる(host/guest間の乱数ズレ防止)');
+}
 
 // ---- 「クリア」: 自分の手番中いつでも使用開始できる。開始時点で所持数を1消費し、5秒の猶予内に
 // 対象(お邪魔マス)を選べれば解除、選べなくても回数は戻らない ----
@@ -607,6 +619,20 @@ function pushDummyTurns(g, n) { for (let i = 0; i < n; i++) g.history.push({ pas
   const move = { r: 3, c: 3, dir: 4, word: 'あきり', wildcardIndex: 2 }; // 3文字目(り)は新規マス
   const v = WC.validateMove(g, move, new Set(['あ', 'い', 'う', 'え', 'お']));
   assert(v.ok === false, 'ワイルドカードは既存の文字のマスにのみ使える(新規マスには使えない)');
+}
+{
+  // ワイルドカードで1文字目(起点マスの既存文字)も書き換えられる
+  const initialCells = [[3, 3], [3, 4], [4, 3], [4, 4]];
+  const g = WC.newGame({
+    size: 8, initialCells, initialLetters: ['あ', 'か', 'さ', 'た'], players: ['p0', 'p1'], first: 0, timeLimit: 30,
+    itemsMode: true, itemClearCount: 0, itemBlockCount: 0, itemWildcardCount: 0,
+  });
+  g.items.p0.wildcard = 1;
+  const move = { r: 3, c: 3, dir: 4, word: 'いかり', wildcardIndex: 0 }; // 1文字目「あ」を「い」に書き換え
+  const v = WC.validateMove(g, move, null);
+  assert(v.ok === true, 'ワイルドカードで1文字目の不一致も許容して検証を通せる');
+  WC.applyMove(g, move, 'p0');
+  assert(g.board[3][3] === 'い', '起点マスの文字が実際に書き換わる');
 }
 {
   // 陣取りモードでワイルドカードを使うと、相手の文字を書き換えて得点も奪える

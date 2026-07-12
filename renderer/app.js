@@ -120,7 +120,7 @@
   function hideModal(id) { $(id).classList.add('hidden'); }
   function hideAllModals() {
     ['modal-word', 'modal-approve', 'modal-confirm', 'modal-disconnect',
-      'modal-result', 'modal-overlay', 'modal-notice', 'modal-block-offer'].forEach(hideModal);
+      'modal-result', 'modal-overlay', 'modal-notice', 'modal-block-offer', 'modal-history'].forEach(hideModal);
   }
   function notice(text) { $('notice-text').textContent = text; showModal('modal-notice'); }
   function overlay(text) { $('overlay-text').textContent = text; showModal('modal-overlay'); }
@@ -546,6 +546,7 @@
       territoryMode: opts.scoringMode === 'territory',
       bonusMode: !!opts.bonusMode, obstacleMove: !!opts.obstacleMove, itemsMode: !!opts.itemsMode,
       itemClearCount: opts.itemClearCount, itemBlockCount: opts.itemBlockCount, itemWildcardCount: opts.itemWildcardCount,
+      itemCells: opts.itemCells,
     });
     itemTargetMode = null;
     pendingMove = null; localProposal = null; approval = null;
@@ -1218,11 +1219,14 @@
     const initialCells = WordChain.generateInitialCells(boardSize, placementMode, initialCount);
     const initialLetters = WordChain.randomLetters(initialCells.length);
     const obstacleCells = obstaclesOn ? WordChain.generateObstacleCells(boardSize, initialCells, obstacleCount) : [];
+    const itemCells = itemsModeOn
+      ? WordChain.generateItemCells(boardSize, initialCells, obstacleCells, { clear: itemClearCount, block: itemBlockCount, wildcard: itemWildcardCount })
+      : { clear: [], block: [], wildcard: [] };
     beginLocalGame({
       size: boardSize, initialCells, initialLetters, obstacleCells,
       first: randInt(roster.length), timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id),
       scoringMode, bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
-      itemClearCount, itemBlockCount, itemWildcardCount,
+      itemClearCount, itemBlockCount, itemWildcardCount, itemCells,
     });
   }
   function randInt(max) { const b = new Uint32Array(1); crypto.getRandomValues(b); return b[0] % max; }
@@ -1609,17 +1613,22 @@
       const initialCells = WordChain.generateInitialCells(boardSize, placementMode, initialCount);
       const initialLetters = WordChain.randomLetters(initialCells.length);
       const obstacleCells = obstaclesOn ? WordChain.generateObstacleCells(boardSize, initialCells, obstacleCount) : [];
+      // アイテムマスの座標は権威側(ホスト)がここで一度だけ乱数生成し、'begin' で配信する。
+      // ゲスト側で個別に再生成すると所持アイテム数が host/guest 間でズレるため必須。
+      const itemCells = itemsModeOn
+        ? WordChain.generateItemCells(boardSize, initialCells, obstacleCells, { clear: itemClearCount, block: itemBlockCount, wildcard: itemWildcardCount })
+        : { clear: [], block: [], wildcard: [] };
       Net.broadcast({
         t: 'begin', size: boardSize, initialCells, initialLetters, obstacleCells,
         timeLimit: timeLimitSec, players: publicRoster(), first, scoringMode,
         bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
-        itemClearCount, itemBlockCount, itemWildcardCount,
+        itemClearCount, itemBlockCount, itemWildcardCount, itemCells,
       });
       beginLocalGame({
         size: boardSize, initialCells, initialLetters, obstacleCells,
         first, timeLimit: timeLimitSec, playerIds: roster.map((p) => p.id), scoringMode,
         bonusMode: bonusModeOn, obstacleMove: obstacleMoveOn, itemsMode: itemsModeOn,
-        itemClearCount, itemBlockCount, itemWildcardCount,
+        itemClearCount, itemBlockCount, itemWildcardCount, itemCells,
       });
     }
   }
@@ -1667,6 +1676,7 @@
           first: m.first, timeLimit: m.timeLimit, playerIds: m.players.map((p) => p.id), scoringMode: m.scoringMode,
           bonusMode: m.bonusMode, obstacleMove: m.obstacleMove, itemsMode: m.itemsMode,
           itemClearCount: m.itemClearCount, itemBlockCount: m.itemBlockCount, itemWildcardCount: m.itemWildcardCount,
+          itemCells: m.itemCells,
         });
         break;
       case 'turn': guestOnTurn(m); break;
@@ -2196,6 +2206,8 @@
 
   $('btn-leave').addEventListener('click', leaveEverything);
   $('btn-pass').addEventListener('click', () => { if (isMyInputTurn()) submitLocalPass(); });
+  $('btn-history').addEventListener('click', () => showModal('modal-history'));
+  $('btn-history-close').addEventListener('click', () => hideModal('modal-history'));
 
   $('board').addEventListener('click', (e) => {
     const el = e.target.closest('.cell');

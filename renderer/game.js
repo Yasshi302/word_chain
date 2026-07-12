@@ -315,10 +315,17 @@ const WordChain = (() => {
     let itemCells = { clear: [], block: [], wildcard: [] };
     if (itemsMode) {
       for (const p of players) items[p] = { clear: 0, block: 0, wildcard: 0 };
-      const clearCount = Math.max(0, Number.isInteger(opts.itemClearCount) ? opts.itemClearCount : 1);
-      const blockCount = Math.max(0, Number.isInteger(opts.itemBlockCount) ? opts.itemBlockCount : 1);
-      const wildcardCount = Math.max(0, Number.isInteger(opts.itemWildcardCount) ? opts.itemWildcardCount : 1);
-      itemCells = generateItemCells(size, initialCells, obstacleCells, { clear: clearCount, block: blockCount, wildcard: wildcardCount });
+      if (opts.itemCells) {
+        // オンライン対戦では権威側(ホスト)が一度だけ乱数で生成した結果を
+        // 'begin' で配信し、全クライアントが同じ具体的な座標でゲームを構築する必要がある。
+        // (乱数を各クライアントで個別に再生成すると所持アイテム数が host/guest 間でズレる)
+        itemCells = { clear: opts.itemCells.clear || [], block: opts.itemCells.block || [], wildcard: opts.itemCells.wildcard || [] };
+      } else {
+        const clearCount = Math.max(0, Number.isInteger(opts.itemClearCount) ? opts.itemClearCount : 1);
+        const blockCount = Math.max(0, Number.isInteger(opts.itemBlockCount) ? opts.itemBlockCount : 1);
+        const wildcardCount = Math.max(0, Number.isInteger(opts.itemWildcardCount) ? opts.itemWildcardCount : 1);
+        itemCells = generateItemCells(size, initialCells, obstacleCells, { clear: clearCount, block: blockCount, wildcard: wildcardCount });
+      }
     }
     return {
       size,
@@ -720,9 +727,6 @@ const WordChain = (() => {
       }
       return { ok: false, reason: '単語が盤面からはみ出します' };
     }
-    if (normalizeSmallKana(chars[0]) !== normalizeSmallKana(game.board[r][c])) {
-      return { ok: false, reason: `「${game.board[r][c]}」から始まる単語を入力してください` };
-    }
     const wildcardIndex = Number.isInteger(move.wildcardIndex) ? move.wildcardIndex : null;
     if (wildcardIndex !== null) {
       if (wildcardIndex < 0 || wildcardIndex >= chars.length) {
@@ -731,6 +735,10 @@ const WordChain = (() => {
       if (!game.itemsMode) return { ok: false, reason: 'アイテムは無効です' };
       const inv = game.items[currentPlayer(game)];
       if (!inv || inv.wildcard <= 0) return { ok: false, reason: 'ワイルドカードの残り回数がありません' };
+    }
+    // ワイルドカードで1文字目を書き換える場合、既存の起点マスの文字との一致チェックを免除する
+    if (wildcardIndex !== 0 && normalizeSmallKana(chars[0]) !== normalizeSmallKana(game.board[r][c])) {
+      return { ok: false, reason: `「${game.board[r][c]}」から始まる単語を入力してください` };
     }
     const cells = rayCells(r, c, dir, chars.length);
     let newCount = 0;
