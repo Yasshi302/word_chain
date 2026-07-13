@@ -80,7 +80,7 @@ const CPU = (() => {
             if (!ok || newCount < 1) continue;
             const last = chars[len - 1];
             if (last === 'ん') continue;
-            if (startChars && !startChars.has(last)) continue;
+            if (startChars && !startChars.has(WordChain.normalizeSmallKana(last))) continue;
             moves.push({ r, c, dir, word: w, len });
           }
         }

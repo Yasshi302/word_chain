@@ -415,15 +415,13 @@
     </div>
   </section>
 
-  <!-- 単語の履歴モーダル -->
-  <div id="modal-history" class="modal hidden">
-    <div class="modal-box modal-box-tall">
-      <h3>単語の履歴</h3>
-      <ul id="history"></ul>
-      <div class="menu-buttons">
-        <button id="btn-history-close" class="btn">閉じる</button>
-      </div>
+  <!-- 単語の履歴パネル(非モーダル。盤面を見ながら確認できる) -->
+  <div id="panel-history" class="float-panel hidden">
+    <div class="float-panel-head">
+      <span>単語の履歴</span>
+      <button id="btn-history-close" class="float-panel-close">&times;</button>
     </div>
+    <ul id="history" class="float-panel-body"></ul>
   </div>
 
   <!-- 単語入力モーダル -->
@@ -468,10 +466,13 @@
     </div>
   </div>
 
-  <!-- ブロック使用確認モーダル(相手ターン開始時、時計を止めて表示) -->
-  <div id="modal-block-offer" class="modal hidden">
-    <div class="modal-box">
-      <h3>ブロックの使用</h3>
+  <!-- ブロック使用確認パネル(相手ターン開始時に表示。非モーダル・ドラッグで移動可能。
+       盤面を見ながら判断できるよう、暗転する背景は敷かない) -->
+  <div id="panel-block-offer" class="float-panel hidden">
+    <div class="float-panel-head" id="block-offer-head">
+      <span>ブロックの使用</span>
+    </div>
+    <div class="float-panel-body">
       <p id="block-offer-text"></p>
       <div class="menu-buttons">
         <button id="btn-block-offer-yes" class="btn primary">使う</button>

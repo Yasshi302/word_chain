@@ -108,5 +108,24 @@ assert(wordIndex.get('い').get(2).includes('いぬ') && wordIndex.get('い').ge
   }
 }
 
+// ---- enumerateMoves: 末尾が拗音・促音等の小さい文字でも、対応する直音が
+// startCharsにあれば「続けられる」と判定し、手として列挙される(協力モードCPUが
+// 拗音終わりの単語しか無いときにパスしてしまっていた不具合の回帰テスト) ----
+{
+  const smallKanaDict = new Set(['あきゃ']);
+  const smallKanaIndex = CPU.buildWordIndex([smallKanaDict]);
+  const smallKanaCounts = CPU.buildStartCharCounts([smallKanaDict]);
+  // 「ゃ」で始まる辞書語は実在しないため、辞書由来のstartCharsには通常「ゃ」は含まれない。
+  // 対応する直音「や」だけをstartCharsに入れる(実際の辞書と同じ状況を再現)。
+  const startCharsNoSmall = new Set(['や']);
+  const g = WC.newGame({ size: 8, initialCells: [[3, 3]], initialLetters: ['あ'], players: ['p0', 'p1'], first: 0, timeLimit: 30 });
+  const moves = CPU.enumerateMoves(g, smallKanaIndex, startCharsNoSmall);
+  assert(moves.length > 0 && moves.every((m) => m.word === 'あきゃ'), '末尾が拗音「ゃ」の単語も、直音「や」がstartCharsにあれば手として列挙される');
+  const move = CPU.chooseMove(g, smallKanaIndex, startCharsNoSmall, 'strongest', smallKanaCounts);
+  assert(move !== null && move.word === 'あきゃ', 'chooseMoveも拗音終わりの唯一の手をパスせず返す');
+  const coopMove = CPU.chooseCoopMove(g, smallKanaIndex, startCharsNoSmall, smallKanaCounts, 'strongest');
+  assert(coopMove !== null && coopMove.word === 'あきゃ', '協力モードCPUも拗音終わりの唯一の手をパスせず返す');
+}
+
 console.log(`\n結果: ${passed} 件成功 / ${failed} 件失敗`);
 process.exit(failed > 0 ? 1 : 0);

@@ -120,10 +120,35 @@
   function hideModal(id) { $(id).classList.add('hidden'); }
   function hideAllModals() {
     ['modal-word', 'modal-approve', 'modal-confirm', 'modal-disconnect',
-      'modal-result', 'modal-overlay', 'modal-notice', 'modal-block-offer', 'modal-history'].forEach(hideModal);
+      'modal-result', 'modal-overlay', 'modal-notice'].forEach(hideModal);
+    hideModal('panel-block-offer'); hideModal('panel-history');
   }
   function notice(text) { $('notice-text').textContent = text; showModal('modal-notice'); }
   function overlay(text) { $('overlay-text').textContent = text; showModal('modal-overlay'); }
+  // 非モーダルのフローティングパネル(ブロック使用確認等)をヘッダー部分のドラッグで
+  // 移動可能にする(盤面を隠さない位置へユーザー自身が動かせるようにするため)。
+  function makeDraggable(panel, handle) {
+    let dragging = false, startX = 0, startY = 0, startLeft = 0, startTop = 0;
+    handle.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      const rect = panel.getBoundingClientRect();
+      startLeft = rect.left; startTop = rect.top;
+      panel.style.left = startLeft + 'px';
+      panel.style.top = startTop + 'px';
+      panel.style.transform = 'none';
+      startX = e.clientX; startY = e.clientY;
+      dragging = true;
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const maxLeft = window.innerWidth - panel.offsetWidth;
+      const maxTop = window.innerHeight - panel.offsetHeight;
+      panel.style.left = Math.max(0, Math.min(maxLeft, startLeft + (e.clientX - startX))) + 'px';
+      panel.style.top = Math.max(0, Math.min(maxTop, startTop + (e.clientY - startY))) + 'px';
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
+  }
   function hideOverlay() { cleanupWaitButtons(); hideModal('modal-overlay'); }
   function setStatus(t) { $('game-status').textContent = t; }
   function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -906,12 +931,12 @@
       $('block-offer-text').textContent = mode === 'offline'
         ? `${nameOf(holderId)}さん、「ブロック」を使いますか?`
         : 'あなたは「ブロック」を持っています。使いますか?';
-      showModal('modal-block-offer');
+      showModal('panel-block-offer');
     } else {
       setStatus(`${nameOf(holderId)}がブロックの使用を検討中です...`);
     }
   }
-  function hideBlockOfferModal() { hideModal('modal-block-offer'); }
+  function hideBlockOfferModal() { hideModal('panel-block-offer'); }
   function authorityDeclineBlockOffer(byId) {
     if (!game || !game.pendingBlockOffer || game.pendingBlockOffer.playerId !== byId) return;
     WordChain.declineBlockOffer(game, byId);
@@ -2206,8 +2231,9 @@
 
   $('btn-leave').addEventListener('click', leaveEverything);
   $('btn-pass').addEventListener('click', () => { if (isMyInputTurn()) submitLocalPass(); });
-  $('btn-history').addEventListener('click', () => showModal('modal-history'));
-  $('btn-history-close').addEventListener('click', () => hideModal('modal-history'));
+  $('btn-history').addEventListener('click', () => showModal('panel-history'));
+  $('btn-history-close').addEventListener('click', () => hideModal('panel-history'));
+  makeDraggable($('panel-block-offer'), $('block-offer-head'));
 
   $('board').addEventListener('click', (e) => {
     const el = e.target.closest('.cell');
