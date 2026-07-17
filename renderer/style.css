@@ -464,13 +464,16 @@ h2 { margin-top: 0; }
   font-size: 20px; cursor: pointer; line-height: 1;
 }
 .float-panel-close:hover { color: var(--text); }
-.float-panel-body { flex: 1; overflow-y: auto; padding: 14px; text-align: center; }
+.float-panel-body { flex: 1; overflow-y: auto; padding: 14px; text-align: center; min-height: 0; }
 
 #panel-history {
   left: 22px;
   top: 22px;
   width: 340px;
+  min-width: 260px;
+  max-width: 720px;
   max-height: calc(100vh - 44px);
+  resize: horizontal;
 }
 #panel-block-offer {
   left: 50%;
