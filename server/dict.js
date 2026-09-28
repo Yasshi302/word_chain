@@ -70,6 +70,7 @@ function createDictionary({ baseFile, customFile }) {
 
   function add(word) {
     if (!WORD_RE.test(word)) return { ok: false, error: `ひらがな2〜${WordChain.SIZE_MAX}文字で入力してください` };
+    if (word.endsWith('ん')) return { ok: false, error: '「ん」で終わる単語は使えないため追加できません' };
     if (base.has(word)) return { ok: false, error: 'その単語は基本辞書に既に含まれています' };
     if (custom.has(word)) return { ok: false, error: 'その単語は既に追加されています' };
     if (custom.size >= MAX_CUSTOM_WORDS) return { ok: false, error: '追加単語の上限に達しています' };
