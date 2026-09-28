@@ -902,3 +902,6 @@ input[type="range"]::-webkit-slider-thumb {
   transition: width .2s ease;
 }
 .roster-updating { color: var(--gold); font-size: 12px; }
+
+/* ホームの「ゲームロビーへ」はリンクだがボタンと同じ見た目にする */
+a.btn { text-decoration: none; text-align: center; box-sizing: border-box; }

@@ -3,7 +3,7 @@
  */
 'use strict';
 
-const WC = require('../renderer/game.js');
+const WC = require('../shared/game.js');
 
 let passed = 0;
 let failed = 0;

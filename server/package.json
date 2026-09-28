@@ -1,0 +1,16 @@
+{
+  "name": "wordchain-online",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ワードチェイン オンライン対戦サーバー(ブラウザ版)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js --dev"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "helmet": "^8.3.0",
+    "socket.io": "^4.8.4"
+  }
+}

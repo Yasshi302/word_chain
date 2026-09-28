@@ -3,9 +3,9 @@
  */
 'use strict';
 
-const WC = require('../renderer/game.js');
+const WC = require('../shared/game.js');
 global.WordChain = WC; // cpu.js は WordChain をグローバル参照する想定 (ブラウザのscript読み込み順に合わせる)
-const CPU = require('../renderer/cpu.js');
+const CPU = require('../shared/cpu.js');
 
 let passed = 0;
 let failed = 0;

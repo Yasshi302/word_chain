@@ -7,6 +7,9 @@
  * 使い方: node tools/build-dict.js <JMdict_e.gz のパス>
  * 出力:   data/dictionary.txt (1行1単語, UTF-8)
  *
+ * 追加単語: data/dict-*.txt (1行1単語。例: dict-countries.txt = 国名) の単語も取り込む
+ *   (JMdict に無い・読みが違う固有名詞などを補うため。生成し直しても消えない)
+ *
  * フィルタ条件:
  *  - ひらがな(ぁ-ゖ)と長音符(ー)のみで構成される
  *  - 2文字以上8文字以下 (盤面が8x8のため)
@@ -66,6 +69,19 @@ function main() {
     words.add(w);
   }
   console.log(`読み取り: ${total} 件 → ひらがな候補: ${words.size} 語`);
+
+  // 追加単語(data/dict-*.txt)。長さの上限は盤面の最大(15文字)まで許す
+  const dataDir = path.join(__dirname, '..', 'data');
+  for (const f of fs.readdirSync(dataDir).filter(n => /^dict-.+\.txt$/.test(n))) {
+    let added = 0;
+    for (const line of fs.readFileSync(path.join(dataDir, f), 'utf8').split('\n')) {
+      const w = katakanaToHiragana(line.trim());
+      if (!/^[ぁ-ゖー]{2,15}$/u.test(w) || w.startsWith('ん') || w.endsWith('ん') || words.has(w)) continue;
+      words.add(w);
+      added++;
+    }
+    console.log(`追加単語 ${f}: ${added} 語`);
+  }
 
   // 行き止まり文字フィルタ: どの単語の先頭にもならない文字で終わる単語を
   // 除外する。除外によって先頭文字集合が変わりうるので固定点まで繰り返す。
