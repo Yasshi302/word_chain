@@ -183,3 +183,21 @@ const Sound = (() => {
 
   return { unlock, startBgm, stopBgm, sfx, setBgmVolume, setSfxVolume, getBgmVolume, getSfxVolume };
 })();
+
+// ロビーの共通の設定画面(画面の大きさと同じところ)にも音量を出す。ゲーム内の設定のつまみと同じ値
+(() => {
+  const sync = () => {
+    const b = document.getElementById('vol-bgm');
+    const s = document.getElementById('vol-sfx');
+    const bv = Math.round(Sound.getBgmVolume() * 100);
+    const sv = Math.round(Sound.getSfxVolume() * 100);
+    if (b) { b.value = bv; const l = document.getElementById('vol-bgm-label'); if (l) l.textContent = bv + '%'; }
+    if (s) { s.value = sv; const l = document.getElementById('vol-sfx-label'); if (l) l.textContent = sv + '%'; }
+  };
+  const audio = {
+    bgm: { get: Sound.getBgmVolume, set: v => { Sound.setBgmVolume(v); sync(); } },
+    se: { get: Sound.getSfxVolume, set: v => { Sound.setSfxVolume(v); sync(); } },
+  };
+  window.LOBBY_AUDIO = audio;
+  if (window.LobbyBar && window.LobbyBar.registerAudio) window.LobbyBar.registerAudio(audio);
+})();
