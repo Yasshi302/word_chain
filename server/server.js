@@ -1,6 +1,6 @@
 'use strict';
 // ワードチェイン オンライン対戦サーバー(ブラウザ版)。
-// 本番は Caddy が https://summon-war.servequake.com/wordchain/* をこのプロセスへ中継する。
+// 本番は Caddy が https://yasshi-games.servegame.com/wordchain/* をこのプロセスへ中継する。
 // ログイン・本人確認・部屋一覧・招待は共通ゲームロビーが担う(lobbyClient.js)。
 
 const path = require('path');
